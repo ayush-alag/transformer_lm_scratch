@@ -54,12 +54,13 @@ class BPETokenizer:
             for segment in segments:
                for match in re.finditer(PAT, segment):
                   # tuple of single bytes, each is a bytes type
-                  token_bytes = tuple(match.group(0).encode('utf-8'))
+                  raw_bytes = match.group(0).encode('utf-8')
+                  token_bytes = tuple(bytes([b]) for b in raw_bytes)
                   bytes_to_count[token_bytes] += 1
                   
                   # Index all pairs in this token
                   for pos in range(len(token_bytes) - 1):
-                     pair = (bytes([token_bytes[pos]]), bytes([token_bytes[pos + 1]]))
+                     pair = (token_bytes[pos], token_bytes[pos + 1])
                      pair_to_locations[pair].add(len(pretoken_list))
                   
                   pretoken_list.append(token_bytes)
@@ -71,8 +72,7 @@ class BPETokenizer:
                     pretoken_list: list[bytes],
                     pair_to_locs,
                     pair_to_count,
-                    num_merges: int) -> \
-      tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+                    num_merges: int) -> list[tuple[bytes, bytes]]:
       merges = []
       
       pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
@@ -107,7 +107,7 @@ class BPETokenizer:
                   i += 2
                   
                   # Update the adjacent pairs
-                  if len(new_token) > 1:  # If there's an element before
+                  if len(new_token) > 1: 
                      pair_to_count[(new_token[-2], best_pair[0])] -= pretoken_count
                      pair_to_count[(new_token[-2], merged_pair)] += pretoken_count
                      pair_to_locs[(new_token[-2], merged_pair)].add(token_list_idx)
