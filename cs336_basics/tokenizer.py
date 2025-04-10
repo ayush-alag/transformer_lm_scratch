@@ -37,7 +37,7 @@ class BPETokenizer:
       
       bytes_to_count = defaultdict(int)
       pretoken_list = []
-      pair_to_locations = defaultdict(list)
+      pair_to_locations = defaultdict(set)
       
       # Create a regex pattern to split on special tokens if provided
       special_token_pattern = None
@@ -57,12 +57,12 @@ class BPETokenizer:
                   token_bytes = tuple(match.group(0).encode('utf-8'))
                   bytes_to_count[token_bytes] += 1
                   
-                  pretoken_list.append(token_bytes)
-                  
                   # Index all pairs in this token
                   for pos in range(len(token_bytes) - 1):
-                     pair = (token_bytes[pos], token_bytes[pos + 1])
-                     pair_to_locations[pair].add((len(pretoken_list), pos))
+                     pair = (bytes([token_bytes[pos]]), bytes([token_bytes[pos + 1]]))
+                     pair_to_locations[pair].add(len(pretoken_list))
+                  
+                  pretoken_list.append(token_bytes)
       
       return bytes_to_count, pretoken_list, pair_to_locations
 
@@ -82,17 +82,57 @@ class BPETokenizer:
          # get the max pair
          best_entry = heapq.heappop(pair_heap)
          best_pair = best_entry.pair
-         best_count = best_entry.count
          
          # merge the max pair
          merges.append(best_pair)
-         self.add_to_vocab(best_pair[0] + best_pair[1])
          
-         locs = pair_to_locs[best_pair]
-         # do something with these locations and pretoken_list
+         merged_pair = best_pair[0] + best_pair[1]
+         self.add_to_vocab(merged_pair)
          
+         # now, all i need to do is update pair_to_count, pair_to_locs, and pretoken
+         for token_list_idx in pair_to_locs[best_pair]:
+            old_token = pretoken_list[token_list_idx]
+            
+            # how many times this pretoken appears in the corpus
+            pretoken_count = pretokenized_bytes_to_count[old_token]
+            
+            # first, we update the pretoken_list to have the merged token
+            new_token = []
+            
+            # i corresponds to indexing into old token
+            i = 0
+            while i < len(old_token):
+               if i < len(old_token) - 1 and old_token[i] == best_pair[0] and old_token[i + 1] == best_pair[1]:
+                  new_token.append(merged_pair)
+                  i += 2
+                  
+                  # Update the adjacent pairs
+                  if len(new_token) > 1:  # If there's an element before
+                     pair_to_count[(new_token[-2], best_pair[0])] -= pretoken_count
+                     pair_to_count[(new_token[-2], merged_pair)] += pretoken_count
+                     pair_to_locs[(new_token[-2], merged_pair)].add(token_list_idx)
+                  if i < len(old_token):
+                     pair_to_count[(best_pair[1], old_token[i])] -= pretoken_count
+                     pair_to_count[(merged_pair, old_token[i])] += pretoken_count
+                     pair_to_locs[(merged_pair, old_token[i])].add(token_list_idx)
+               else:
+                  new_token.append(old_token[i])
+                  i += 1
+                  
+            new_token = tuple(new_token)
+            pretoken_list[token_list_idx] = new_token
+            
+            # Update counts
+            pretokenized_bytes_to_count[new_token] = pretoken_count
+            del pretokenized_bytes_to_count[old_token]
          
-      
+         # After all token updates are complete, rebuild the heap
+         del pair_to_locs[best_pair]
+         del pair_to_count[best_pair]
+         pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items() 
+                      if count > 0]  # Filter out pairs with zero count
+         heapq.heapify(pair_heap)
+         
       return merges
 
    def add_to_vocab(self, encoded_token):
@@ -106,7 +146,7 @@ class BPETokenizer:
    def train_bpe(self) -> \
       tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
          pretokenized_bytes_to_count, pretoken_list, pair_to_locs = self.pretokenize_input()
-         pair_to_count = {pair : len(locations) for pair, locations in pair_to_locs.items()}
+         pair_to_count = defaultdict(int, {pair : len(locations) for pair, locations in pair_to_locs.items()})
          
          number_merges = self.vocab_size - len(self.vocab) - len(self.special_tokens)
          merges = self.merge_tokens(pretokenized_bytes_to_count,
