@@ -82,10 +82,12 @@ class BPETokenizer:
             if self.special_tokens and segment in self.special_tokens:
                 token_ids.extend(self.tokens_to_ids([segment.encode("utf-8")]))
             else:
-                segment = segment.encode("utf-8")
-                pre_token = [bytes([b]) for b in segment]
-                merged_segment = self.apply_merges(pre_token)
-                token_ids.extend(self.tokens_to_ids(merged_segment))
+                for match in re.finditer(PAT, segment):
+                    # tuple of single bytes, each is a bytes type
+                    raw_bytes = match.group(0).encode("utf-8")
+                    pre_token = [bytes([b]) for b in raw_bytes]
+                    merged_segment = self.apply_merges(pre_token)
+                    token_ids.extend(self.tokens_to_ids(merged_segment))
 
         return token_ids
 
