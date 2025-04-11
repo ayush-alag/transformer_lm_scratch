@@ -1,8 +1,10 @@
 import regex as re
 from collections import defaultdict
 import heapq
+import os
+import multiprocessing as mp
+from functools import partial
 
-# TODO: need to add parallelism??
 class PairEntry:
    def __init__(self, pair, count):
       self.pair = pair  # The byte pair
@@ -27,25 +29,69 @@ class BPETokenizer:
       self.vocab_size = vocab_size
       self.input_path = input_path
       self.special_tokens = special_tokens
+   
+   def find_chunk_boundaries(
+      self,
+      file,
+      desired_num_chunks: int, 
+      split_special_token: bytes
+   ) -> list[int]:
+      """
+      Chunk the file into parts that can be counted independently.
+      May return fewer chunks if the boundaries end up overlapping.
+      """
+      assert isinstance(split_special_token, bytes), (
+         "Must represent special token as a bytestring"
+      )
 
-   def pretokenize_input(self):
+      # Get total file size in bytes
+      file.seek(0, os.SEEK_END)
+      file_size = file.tell()
+      file.seek(0)
+
+      chunk_size = file_size // desired_num_chunks
+
+      # Initial guesses for chunk boundary locations, uniformly spaced
+      # Chunks start on previous index, don't include last index
+      chunk_boundaries = [i * chunk_size for i in range(desired_num_chunks + 1)]
+      chunk_boundaries[-1] = file_size
+
+      mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
+
+      for bi in range(1, len(chunk_boundaries) - 1):
+         initial_position = chunk_boundaries[bi]
+         file.seek(initial_position)  # Start at boundary guess
+         while True:
+            mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
+
+            # If EOF, this boundary should be at the end of the file
+            if mini_chunk == b"":
+                  chunk_boundaries[bi] = file_size
+                  break
+
+            # Find the special token in the mini chunk
+            found_at = mini_chunk.find(split_special_token)
+            if found_at != -1:
+                  chunk_boundaries[bi] = initial_position + found_at
+                  break
+            initial_position += mini_chunk_size
+
+      # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
+      return sorted(set(chunk_boundaries))
+      
+   def pretokenize_chunk(self, args, file_path, special_token_pattern):
       PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-      
       bytes_to_count = defaultdict(int)
-      pair_to_locations = defaultdict(set)
       
-      # Create a regex pattern to split on special tokens if provided
-      special_token_pattern = None
-      escaped_tokens = [re.escape(token) for token in self.special_tokens]
-      if len(escaped_tokens) > 0:
-         special_token_pattern = re.compile('(' + '|'.join(escaped_tokens) + ')')
-      
-      with open(self.input_path, 'r', encoding='utf-8') as f:
-         # breaking down by line causes issues
-         full_text = f.read()
-         segments = [full_text]
+      start, end = args
+      # Each process needs its own file handle
+      with open(file_path, 'rb') as f:
+         f.seek(start)
+         chunk = f.read(end - start).decode("utf-8", errors="ignore")
+         
+         segments = [chunk]
          if special_token_pattern:
-            segments = special_token_pattern.split(full_text)
+            segments = special_token_pattern.split(chunk)
          
          for segment in segments:
             if segment in self.special_tokens:
@@ -59,6 +105,46 @@ class BPETokenizer:
                   raw_bytes = match.group(0).encode('utf-8')
                   token_bytes = tuple(bytes([b]) for b in raw_bytes)
                   bytes_to_count[token_bytes] += 1
+      
+      return bytes_to_count
+
+   def pretokenize_input(self):
+      bytes_to_count = defaultdict(int)
+      pair_to_locations = defaultdict(set)
+      
+      # Create a regex pattern to split on special tokens if provided
+      special_token_pattern = None
+      escaped_tokens = [re.escape(token) for token in self.special_tokens]
+      if len(escaped_tokens) > 0:
+         special_token_pattern = re.compile('(' + '|'.join(escaped_tokens) + ')')
+        
+      # TODO: change this
+      num_processes = 30
+       
+      ## Usage
+      with open(self.input_path, "rb") as f:
+         boundaries = self.find_chunk_boundaries(
+            f, num_processes, "<|endoftext|>".encode("utf-8"))
+         
+         # Create argument pairs
+         chunk_args = list(zip(boundaries[:-1], boundaries[1:]))
+         
+         # Create a partial function with fixed arguments
+         worker_fn = partial(
+            self.pretokenize_chunk,
+            file_path=self.input_path,
+            special_token_pattern=special_token_pattern
+         )
+         
+         # Create a process pool and map the work
+         with mp.Pool(processes=mp.cpu_count()) as pool:
+            # Process all chunks in parallel and get results
+            results = pool.map(worker_fn, chunk_args)
+         
+         # Combine results from all processes
+         for local_counts in results:
+            for token, count in local_counts.items():
+               bytes_to_count[token] += count
       
       # build a unique token list that we maintain indices into
       unique_token_list = list(bytes_to_count.keys())
