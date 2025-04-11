@@ -1,4 +1,5 @@
 import importlib.metadata
-from .tokenizer import BPETokenizer
+from .bpe_trainer import BPETrainer
+from .bpe_tokenizer import BPETokenizer
 
 __version__ = importlib.metadata.version("cs336_basics")

@@ -24,7 +24,7 @@ class PairEntry:
    
    def __repr__(self):
       return f"PairEntry({self.pair}, {self.count})"
-class BPETokenizer:
+class BPETrainer:
    def __init__(self, vocab_size, input_path, special_tokens):
       self.vocab_size = vocab_size
       self.input_path = input_path
