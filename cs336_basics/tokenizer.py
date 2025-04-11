@@ -38,15 +38,22 @@ class BPETokenizer:
       special_token_pattern = None
       escaped_tokens = [re.escape(token) for token in self.special_tokens]
       if len(escaped_tokens) > 0:
-         special_token_pattern = re.compile('|'.join(escaped_tokens))
+         special_token_pattern = re.compile('(' + '|'.join(escaped_tokens) + ')')
       
       with open(self.input_path, 'r', encoding='utf-8') as f:
-         for line in f:
-            segments = [line]
-            if special_token_pattern:
-                  segments = special_token_pattern.split(line)
-            
-            for segment in segments:
+         # breaking down by line causes issues
+         full_text = f.read()
+         segments = [full_text]
+         if special_token_pattern:
+            segments = special_token_pattern.split(full_text)
+         
+         for segment in segments:
+            if segment in self.special_tokens:
+               token_bytes = segment.encode('utf-8')
+               # Wrap it in a tuple form (or do whatever format you use)
+               token_tuple = (token_bytes,)
+               bytes_to_count[token_tuple] += 1
+            else:
                for match in re.finditer(PAT, segment):
                   # tuple of single bytes, each is a bytes type
                   raw_bytes = match.group(0).encode('utf-8')
