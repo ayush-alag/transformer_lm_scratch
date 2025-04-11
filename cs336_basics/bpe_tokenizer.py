@@ -93,7 +93,10 @@ class BPETokenizer:
 
     def encode_iterable(self, iterable):
         # iterable of strings (python file handle) -> generator that lazily yields token IDs
-        pass
+        for text in iterable:
+            token_ids = self.encode(text)
+            for token in token_ids:
+                yield token
 
     def decode(self, ids):
         # Decode a list of token IDs into text
