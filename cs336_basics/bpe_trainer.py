@@ -4,9 +4,12 @@ import heapq
 import multiprocessing as mp
 from functools import partial
 import json
+import cProfile
+import pstats
+from pstats import SortKey
 
 from .common_tokenizer import find_chunk_boundaries
-
+from memory_profiler import profile
 
 class PairEntry:
     def __init__(self, pair, count):
@@ -30,10 +33,11 @@ class PairEntry:
 
 
 class BPETrainer:
-    def __init__(self, vocab_size, input_path, special_tokens):
+    def __init__(self, vocab_size, input_path, special_tokens, num_processes=1):
         self.vocab_size = vocab_size
         self.input_path = input_path
         self.special_tokens = special_tokens
+        self.num_processes = num_processes
 
     def pretokenize_chunk(self, args, file_path, special_token_pattern):
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -74,13 +78,10 @@ class BPETrainer:
         if len(escaped_tokens) > 0:
             special_token_pattern = re.compile("(" + "|".join(escaped_tokens) + ")")
 
-        # TODO: change this
-        num_processes = 30
-
         ## Usage
         with open(self.input_path, "rb") as f:
             boundaries = find_chunk_boundaries(
-                f, num_processes, "<|endoftext|>".encode("utf-8")
+                f, self.num_processes, "<|endoftext|>".encode("utf-8")
             )
 
             # Create argument pairs
@@ -94,7 +95,7 @@ class BPETrainer:
             )
 
             # Create a process pool and map the work
-            with mp.Pool(processes=mp.cpu_count()) as pool:
+            with mp.Pool(processes=self.num_processes) as pool:
                 # Process all chunks in parallel and get results
                 results = pool.map(worker_fn, chunk_args)
 
@@ -257,7 +258,12 @@ class BPETrainer:
                     f"{' '.join(str(b) for b in b1)}\t{' '.join(str(b) for b in b2)}\n"
                 )
 
-    def train_bpe(self) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    @profile
+    def train_bpe(self, profile_path=None) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+        if profile_path:
+            profiler = cProfile.Profile()
+            profiler.enable()
+
         pretokenized_bytes_to_count, pretoken_list, pair_to_locs, pair_to_count = (
             self.pretokenize_input()
         )
@@ -272,5 +278,11 @@ class BPETrainer:
         )
 
         vocab = self.build_vocab(merges)
+
+        if profile_path:
+            profiler.disable()
+            stats = pstats.Stats(profiler).strip_dirs().sort_stats(SortKey.CUMULATIVE)
+            stats.print_stats(10)
+            stats.dump_stats(profile_path)
 
         return vocab, merges

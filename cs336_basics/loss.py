@@ -14,3 +14,6 @@ def cross_entropy_loss(predictions: Tensor, targets: Tensor) -> Tensor:
 
     target_log_likelihood = negative_log_likelihood.gather(dim=-1, index=targets.unsqueeze(-1)).squeeze(-1)
     return target_log_likelihood.mean()
+
+def perplexity(predictions: Tensor, targets: Tensor) -> Tensor:
+    return torch.exp(cross_entropy_loss(predictions, targets))
