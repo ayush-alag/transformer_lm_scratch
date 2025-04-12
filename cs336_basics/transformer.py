@@ -88,3 +88,11 @@ class SwigluFFN(nn.Module):
         silu_x = self.silu(self.w_1.forward(x))
         inner_product = silu_x * self.w_3.forward(x)
         return self.w_2.forward(inner_product)
+
+def softmax(x: Tensor, dim: int) -> Tensor:
+    # get the max for each slice (other dimensions) for dimension i
+    x_max = x.max(dim=dim, keepdim=True)[0]
+    stable_x = x - x_max
+    exp_stable_x = torch.exp(stable_x)
+    
+    return exp_stable_x / exp_stable_x.sum(dim=dim, keepdim=True)
