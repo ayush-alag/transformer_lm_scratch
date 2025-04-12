@@ -9,7 +9,9 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 
-from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, SwigluFFN, softmax, RotaryPositionalEmbedding
+from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, \
+                         SwigluFFN, softmax, RotaryPositionalEmbedding, \
+                         scaled_dot_product_attention, silu
 
 
 def run_linear(
@@ -110,7 +112,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q.shape[-1], Q, K, V, mask)
 
 
 def run_multihead_self_attention(
@@ -401,7 +403,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    return silu(in_features)
 
 
 def run_get_batch(

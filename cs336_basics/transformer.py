@@ -80,14 +80,14 @@ class SwigluFFN(nn.Module):
         self.w_2 = Linear(self.d_ff, d_model, device, dtype)
         self.w_3 = Linear(d_model, self.d_ff, device, dtype)
     
-    def silu(self, x: Tensor) -> Tensor:
-        return x * torch.sigmoid(x)
-    
     def forward(self, x: Tensor) -> Tensor:
         # (batch_size, sequence_length, d_model) -> (batch_size, sequence_length, d_model)
-        silu_x = self.silu(self.w_1.forward(x))
+        silu_x = silu(self.w_1.forward(x))
         inner_product = silu_x * self.w_3.forward(x)
         return self.w_2.forward(inner_product)
+    
+def silu(x: Tensor) -> Tensor:
+    return x * torch.sigmoid(x)
 
 def softmax(x: Tensor, dim: int) -> Tensor:
     # get the max for each slice (other dimensions) for dimension i
