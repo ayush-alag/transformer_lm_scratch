@@ -9,7 +9,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 
-from cs336_basics import BPETrainer, BPETokenizer
+from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, SwigluFFN
 
 
 def run_linear(
@@ -26,12 +26,14 @@ def run_linear(
         out_dim (int): The size of the output dimension
         weights (Float[Tensor, "d_out d_in"]): The linear weights to use
         in_features (Float[Tensor, "... d_out"]): The output tensor to apply the function to
-    
+
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    raise NotImplementedError
+    linear_layer = Linear(d_in, d_out, device=weights.device, dtype=weights.dtype)
+    linear_layer.weights_transposed.data = weights.T
+    return linear_layer(in_features)
 
 
 def run_embedding(
@@ -48,12 +50,14 @@ def run_embedding(
         d_model (int): The size of the embedding dimension
         weights (Float[Tensor, "vocab_size d_model"]): The embedding vectors to fetch from
         token_ids (Int[Tensor, "..."]): The set of token ids to fetch from the Embedding layer
-    
+
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    embedding_layer = Embedding(vocab_size, d_model, device=weights.device, dtype=weights.dtype)
+    embedding_layer.embedding_mat.data = weights
+    return embedding_layer(token_ids)
 
 
 def run_swiglu(
@@ -78,14 +82,14 @@ def run_swiglu(
     Returns:
         Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
     """
-    # Example:
-    # If your state dict keys match, you can use `load_state_dict()`
-    # swiglu.load_state_dict(weights)
-    # You can also manually assign the weights
-    # swiglu.w1.weight.data = w1_weight
-    # swiglu.w2.weight.data = w2_weight
-    # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    
+    swiglu_ffn = SwigluFFN(d_model, d_ff, w1_weight.device, w1_weight.dtype)
+
+    swiglu_ffn.w_1.weights_transposed.data = w1_weight.T
+    swiglu_ffn.w_2.weights_transposed.data = w2_weight.T
+    swiglu_ffn.w_3.weights_transposed.data = w3_weight.T
+    
+    return swiglu_ffn(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -303,7 +307,7 @@ def run_transformer_lm(
             evenly divisible by `num_heads`.
         d_ff (int): Dimensionality of the feed-forward inner layer (section 3.3).
         rope_theta (float): The RoPE $\Theta$ parameter.
-        weights (dict[str, Tensor]): 
+        weights (dict[str, Tensor]):
             State dict of our reference implementation. {num_layers} refers to an
             integer between `0` and `num_layers - 1` (the layer index).
             The keys of this dictionary are:
@@ -380,7 +384,9 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    rmsnorm_layer = RMSNorm(d_model, eps, device=weights.device, dtype=weights.dtype)
+    rmsnorm_layer.gain.data = weights
+    return rmsnorm_layer(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -589,6 +595,6 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    
+
     tokenizer = BPETrainer(vocab_size, input_path, special_tokens)
     return tokenizer.train_bpe()

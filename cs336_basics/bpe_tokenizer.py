@@ -91,6 +91,11 @@ class BPETokenizer:
 
         return token_ids
 
+    def serialize(self, token_ids, token_ids_path):
+        # We recommend serializing the token IDs as a NumPy array of datatype uint16.
+        token_ids_array = np.array(token_ids, dtype=np.uint16)
+        np.save(token_ids_path, token_ids_array)
+
     def encode_iterable(self, iterable):
         # iterable of strings (python file handle) -> generator that lazily yields token IDs
         for text in iterable:
