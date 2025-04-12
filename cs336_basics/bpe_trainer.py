@@ -7,6 +7,8 @@ import json
 import cProfile
 import pstats
 from pstats import SortKey
+from tqdm import tqdm
+import time
 
 from .common_tokenizer import find_chunk_boundaries
 from memory_profiler import profile
@@ -39,32 +41,33 @@ class BPETrainer:
         self.special_tokens = special_tokens
         self.num_processes = num_processes
 
-    def pretokenize_chunk(self, args, file_path, special_token_pattern):
+    def pretokenize_chunk(self, args, file_path, special_token_pattern=None):
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         bytes_to_count = defaultdict(int)
 
         start, end = args
         # Each process needs its own file handle
         with open(file_path, "rb") as f:
+            other_start_time = time.time()
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
 
             segments = [chunk]
             if special_token_pattern:
                 segments = special_token_pattern.split(chunk)
+                
+            other_end_time = time.time()
+            # print("Pretokenizing (other): ", other_end_time - other_start_time)
 
+            segment_start = time.time()
             for segment in segments:
-                if segment in self.special_tokens:
-                    token_bytes = segment.encode("utf-8")
-                    # Wrap it in a tuple form (or do whatever format you use)
-                    token_tuple = (token_bytes,)
-                    bytes_to_count[token_tuple] += 1
-                else:
-                    for match in re.finditer(PAT, segment):
-                        # tuple of single bytes, each is a bytes type
-                        raw_bytes = match.group(0).encode("utf-8")
-                        token_bytes = tuple(bytes([b]) for b in raw_bytes)
-                        bytes_to_count[token_bytes] += 1
+                for match in re.finditer(PAT, segment):
+                    # tuple of single bytes, each is a bytes type
+                    raw_bytes = match.group(0).encode("utf-8")
+                    token_bytes = tuple(bytes([b]) for b in raw_bytes)
+                    bytes_to_count[token_bytes] += 1
+            segment_end = time.time()
+            # print("Pretokenizing (segment): ", segment_end - segment_start, " length: ", )
 
         return bytes_to_count
 
@@ -76,12 +79,13 @@ class BPETrainer:
         special_token_pattern = None
         escaped_tokens = [re.escape(token) for token in self.special_tokens]
         if len(escaped_tokens) > 0:
-            special_token_pattern = re.compile("(" + "|".join(escaped_tokens) + ")")
+            special_token_pattern = re.compile("|".join(escaped_tokens))
 
         ## Usage
+        print("Reading and chunking input file...")
         with open(self.input_path, "rb") as f:
             boundaries = find_chunk_boundaries(
-                f, self.num_processes, "<|endoftext|>".encode("utf-8")
+                f, self.num_processes ** 2, "<|endoftext|>".encode("utf-8")
             )
 
             # Create argument pairs
@@ -94,16 +98,23 @@ class BPETrainer:
                 special_token_pattern=special_token_pattern,
             )
 
+            print(f"Pretokenizing with {self.num_processes} processes...")
             # Create a process pool and map the work
             with mp.Pool(processes=self.num_processes) as pool:
                 # Process all chunks in parallel and get results
-                results = pool.map(worker_fn, chunk_args)
+                results = list(tqdm(
+                    pool.imap(worker_fn, chunk_args),
+                    total=len(chunk_args),
+                    desc="Pretokenizing chunks"
+                ))
 
+            print("Combining results...")
             # Combine results from all processes
             for local_counts in results:
                 for token, count in local_counts.items():
                     bytes_to_count[token] += count
 
+        print("Indexing token pairs...")
         # build a unique token list that we maintain indices into
         unique_token_list = list(bytes_to_count.keys())
         pair_to_count = defaultdict(int)
@@ -200,26 +211,29 @@ class BPETrainer:
         pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
         heapq.heapify(pair_heap)
 
-        for _ in range(num_merges):
-            # get the max pair
-            best_pair = heapq.heappop(pair_heap).pair
+        with tqdm(total=num_merges, desc="BPE Merges") as pbar:
+            for _ in range(num_merges):
+                # get the max pair
+                best_pair = heapq.heappop(pair_heap).pair
 
-            # merge the max pair
-            merges.append(best_pair)
-            self.merge_pair(
-                best_pair,
-                pretokenized_bytes_to_count,
-                unique_token_list,
-                pair_to_locs,
-                pair_to_count,
-            )
+                # merge the max pair
+                merges.append(best_pair)
+                self.merge_pair(
+                    best_pair,
+                    pretokenized_bytes_to_count,
+                    unique_token_list,
+                    pair_to_locs,
+                    pair_to_count,
+                )
 
-            pair_heap = [
-                PairEntry(pair, count)
-                for pair, count in pair_to_count.items()
-                if count > 0
-            ]
-            heapq.heapify(pair_heap)
+                pair_heap = [
+                    PairEntry(pair, count)
+                    for pair, count in pair_to_count.items()
+                    if count > 0
+                ]
+                heapq.heapify(pair_heap)
+                
+                pbar.update(1)
 
         return merges
 
@@ -240,34 +254,22 @@ class BPETrainer:
 
         return vocab
 
-    # serialize to use later
-    def save_vocab_and_merges(
-        vocab: dict[int, bytes],
-        merges: list[tuple[bytes, bytes]],
-        vocab_path: str,
-        merges_path: str,
-    ):
-        # Save vocab as JSON: {int: list of ints (byte values)}
-        with open(vocab_path, "w", encoding="utf-8") as vf:
-            json.dump({k: list(v) for k, v in vocab.items()}, vf, indent=2)
-
-        # Save merges as space-separated byte values (ints)
-        with open(merges_path, "w", encoding="utf-8") as mf:
-            for b1, b2 in merges:
-                mf.write(
-                    f"{' '.join(str(b) for b in b1)}\t{' '.join(str(b) for b in b2)}\n"
-                )
-
     @profile
     def train_bpe(self, profile_path=None) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+        start_total = time.time()
         if profile_path:
             profiler = cProfile.Profile()
             profiler.enable()
 
+        start_pretokenize = time.time()
         pretokenized_bytes_to_count, pretoken_list, pair_to_locs, pair_to_count = (
             self.pretokenize_input()
         )
+        end_pretokenize = time.time()
+        pretokenize_time = end_pretokenize - start_pretokenize
+        print(f"Pretokenization completed in {pretokenize_time:.2f} seconds")
 
+        start_merge = time.time()
         number_merges = self.vocab_size - 256 - len(self.special_tokens)
         merges = self.merge_tokens(
             pretokenized_bytes_to_count,
@@ -276,13 +278,49 @@ class BPETrainer:
             pair_to_count,
             number_merges,
         )
+        end_merge = time.time()
+        merge_time = end_merge - start_merge
+        print(f"Merge operations completed in {merge_time:.2f} seconds")
 
+        start_vocab = time.time()
         vocab = self.build_vocab(merges)
+        end_vocab = time.time()
+        vocab_time = end_vocab - start_vocab
+        print(f"Vocabulary building completed in {vocab_time:.2f} seconds")
+        
+        # Print total time
+        end_total = time.time()
+        total_time = end_total - start_total
+        print(f"\nTotal execution time: {total_time:.2f} seconds")
+        print(f"  - Pretokenization: {pretokenize_time:.2f}s ({pretokenize_time/total_time*100:.1f}%)")
+        print(f"  - Merge operations: {merge_time:.2f}s ({merge_time/total_time*100:.1f}%)")
+        print(f"  - Vocabulary building: {vocab_time:.2f}s ({vocab_time/total_time*100:.1f}%)")
+        print(f"  - Other overhead: {total_time - (pretokenize_time + merge_time + vocab_time):.2f}s")
+
 
         if profile_path:
             profiler.disable()
             stats = pstats.Stats(profiler).strip_dirs().sort_stats(SortKey.CUMULATIVE)
-            stats.print_stats(10)
+            stats.print_stats(50)
             stats.dump_stats(profile_path)
 
         return vocab, merges
+
+
+# serialize to use later
+def save_vocab_and_merges(
+    vocab: dict[int, bytes],
+    merges: list[tuple[bytes, bytes]],
+    vocab_path: str,
+    merges_path: str,
+):
+    # Save vocab as JSON: {int: list of ints (byte values)}
+    with open(vocab_path, "w", encoding="utf-8") as vf:
+        json.dump({k: list(v) for k, v in vocab.items()}, vf, indent=2)
+
+    # Save merges as space-separated byte values (ints)
+    with open(merges_path, "w", encoding="utf-8") as mf:
+        for b1, b2 in merges:
+            mf.write(
+                f"{' '.join(str(b) for b in b1)}\t{' '.join(str(b) for b in b2)}\n"
+            )
