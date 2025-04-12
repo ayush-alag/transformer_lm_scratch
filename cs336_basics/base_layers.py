@@ -3,6 +3,7 @@ from torch import nn, Tensor
 from torch.nn.init import trunc_normal_
 from einops import einsum
 
+
 class Linear(nn.Module):
     def __init__(self, in_features, out_features, device=None, dtype=None):
         # Construct a linear transformation module. This function should accept the following parameters:
@@ -23,12 +24,17 @@ class Linear(nn.Module):
         max_normal = 3 * stdev
         min_normal = -max_normal
 
-        zero_weights_transposed = torch.zeros([in_features, out_features], device=device, dtype=dtype)
-        self.weights_transposed = nn.Parameter(trunc_normal_(zero_weights_transposed, 0, stdev, min_normal, max_normal))
+        zero_weights_transposed = torch.zeros(
+            [in_features, out_features], device=device, dtype=dtype
+        )
+        self.weights_transposed = nn.Parameter(
+            trunc_normal_(zero_weights_transposed, 0, stdev, min_normal, max_normal)
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         # Apply the linear transformation to theinput.
         return einsum(x, self.weights_transposed, "... d_in, d_in d_out -> ... d_out")
+
 
 class Embedding(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
@@ -43,12 +49,17 @@ class Embedding(nn.Module):
         super().__init__()
 
         # initialize the weight, no bias term
-        zero_embedding_mat = torch.zeros([self.num_embeddings, self.embedding_dim], device=device, dtype=dtype)
-        self.embedding_mat = nn.Parameter(trunc_normal_(zero_embedding_mat, 0, 1, -3, 3))
+        zero_embedding_mat = torch.zeros(
+            [self.num_embeddings, self.embedding_dim], device=device, dtype=dtype
+        )
+        self.embedding_mat = nn.Parameter(
+            trunc_normal_(zero_embedding_mat, 0, 1, -3, 3)
+        )
 
     def forward(self, token_ids: Tensor) -> Tensor:
         # look up the embeddings for the token ids
         return self.embedding_mat[token_ids]
+
 
 class RMSNorm(nn.Module):
     def __init__(self, d_model: int, eps=1e-5, device=None, dtype=None):
@@ -68,9 +79,11 @@ class RMSNorm(nn.Module):
         rms = torch.sqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
         result = self.gain * (x / rms)
         return result.to(in_dtype)
-     
+
+
 def silu(x: Tensor) -> Tensor:
     return x * torch.sigmoid(x)
+
 
 def softmax(x: Tensor, dim: int) -> Tensor:
     # get the max for each slice (other dimensions) for dimension i
