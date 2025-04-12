@@ -12,7 +12,7 @@ from torch import Tensor
 from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, \
                          SwigluFFN, softmax, RotaryPositionalEmbedding, \
                          scaled_dot_product_attention, silu, MultiheadSelfAttention, \
-                         TransformerBlock
+                         TransformerBlock, TransformerLM
 
 def run_linear(
     d_in: int,
@@ -383,8 +383,24 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    token_positions = torch.arange(in_indices.shape[1], device=in_indices.device)
+    transformer_lm = TransformerLM(vocab_size, context_length, num_layers, d_model, num_heads, d_ff, rope_theta, token_positions)
 
+    # set weights directly
+    transformer_lm.embedding.embedding_mat.data = weights["token_embeddings.weight"]
+    for i in range(num_layers):
+        transformer_lm.transformer_blocks[i].attention.w_o.weights_transposed.data = weights[f"layers.{i}.attn.output_proj.weight"].T
+        transformer_lm.transformer_blocks[i].attention.w_qkv.weights_transposed.data = torch.cat([weights[f"layers.{i}.attn.q_proj.weight"], weights[f"layers.{i}.attn.k_proj.weight"], weights[f"layers.{i}.attn.v_proj.weight"]], dim=0).T
+        transformer_lm.transformer_blocks[i].attention_norm.gain.data = weights[f"layers.{i}.ln1.weight"]
+        transformer_lm.transformer_blocks[i].ffn.w_1.weights_transposed.data = weights[f"layers.{i}.ffn.w1.weight"].T
+        transformer_lm.transformer_blocks[i].ffn.w_2.weights_transposed.data = weights[f"layers.{i}.ffn.w2.weight"].T
+        transformer_lm.transformer_blocks[i].ffn.w_3.weights_transposed.data = weights[f"layers.{i}.ffn.w3.weight"].T
+        transformer_lm.transformer_blocks[i].ffn_norm.gain.data = weights[f"layers.{i}.ln2.weight"]
+
+    transformer_lm.ln_final.gain.data = weights["ln_final.weight"]
+    transformer_lm.lm_head.weights_transposed.data = weights["lm_head.weight"].T
+
+    return transformer_lm(in_indices)
 
 def run_rmsnorm(
     d_model: int,
