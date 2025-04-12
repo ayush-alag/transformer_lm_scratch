@@ -11,8 +11,8 @@ from torch import Tensor
 
 from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, \
                          SwigluFFN, softmax, RotaryPositionalEmbedding, \
-                         scaled_dot_product_attention, silu, MultiheadSelfAttention
-
+                         scaled_dot_product_attention, silu, MultiheadSelfAttention, \
+                         TransformerBlock
 
 def run_linear(
     d_in: int,
@@ -84,13 +84,13 @@ def run_swiglu(
     Returns:
         Float[Tensor, "... d_model"]: Output embeddings of the same shape as the input embeddings.
     """
-    
+
     swiglu_ffn = SwigluFFN(d_model, d_ff, w1_weight.device, w1_weight.dtype)
 
     swiglu_ffn.w_1.weights_transposed.data = w1_weight.T
     swiglu_ffn.w_2.weights_transposed.data = w2_weight.T
     swiglu_ffn.w_3.weights_transposed.data = w3_weight.T
-    
+
     return swiglu_ffn(in_features)
 
 
@@ -149,7 +149,7 @@ def run_multihead_self_attention(
     multihead_attention = MultiheadSelfAttention(d_model, num_heads, device=in_features.device)
     multihead_attention.w_o.weights_transposed.data = o_proj_weight.T
     multihead_attention.w_qkv.weights_transposed.data = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0).T
-    
+
     return multihead_attention.forward(in_features)
 
 
@@ -193,7 +193,7 @@ def run_multihead_self_attention_with_rope(
     multihead_attention = MultiheadSelfAttention(d_model, num_heads, rope_theta=theta, max_seq_len=max_seq_len, token_positions=token_positions, device=in_features.device)
     multihead_attention.w_o.weights_transposed.data = o_proj_weight.T
     multihead_attention.w_qkv.weights_transposed.data = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0).T
-    
+
     return multihead_attention.forward(in_features)
 
 def run_rope(
@@ -289,8 +289,20 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    # construct token_positions
+    token_positions = torch.arange(in_features.shape[1], device=in_features.device)
+    transformer_block = TransformerBlock(d_model, num_heads, d_ff, theta, max_seq_len, token_positions)
 
+    # set weights directly
+    transformer_block.attention.w_o.weights_transposed.data = weights["attn.output_proj.weight"].T
+    transformer_block.attention.w_qkv.weights_transposed.data = torch.cat([weights["attn.q_proj.weight"], weights["attn.k_proj.weight"], weights["attn.v_proj.weight"]], dim=0).T
+    transformer_block.attention_norm.gain.data = weights["ln1.weight"]
+    transformer_block.ffn.w_1.weights_transposed.data = weights["ffn.w1.weight"].T
+    transformer_block.ffn.w_2.weights_transposed.data = weights["ffn.w2.weight"].T
+    transformer_block.ffn.w_3.weights_transposed.data = weights["ffn.w3.weight"].T
+    transformer_block.ffn_norm.gain.data = weights["ln2.weight"]
+
+    return transformer_block(in_features)
 
 def run_transformer_lm(
     vocab_size: int,
