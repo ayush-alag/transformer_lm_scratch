@@ -11,7 +11,7 @@ from torch import Tensor
 
 from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, \
                          SwigluFFN, softmax, RotaryPositionalEmbedding, \
-                         scaled_dot_product_attention, silu
+                         scaled_dot_product_attention, silu, MultiheadSelfAttention
 
 
 def run_linear(
@@ -146,7 +146,11 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    multihead_attention = MultiheadSelfAttention(d_model, num_heads, device=in_features.device)
+    multihead_attention.w_o.weights_transposed.data = o_proj_weight.T
+    multihead_attention.w_qkv.weights_transposed.data = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0).T
+    
+    return multihead_attention.forward(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -186,8 +190,11 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
-
+    multihead_attention = MultiheadSelfAttention(d_model, num_heads, rope_theta=theta, max_seq_len=max_seq_len, token_positions=token_positions, device=in_features.device)
+    multihead_attention.w_o.weights_transposed.data = o_proj_weight.T
+    multihead_attention.w_qkv.weights_transposed.data = torch.cat([q_proj_weight, k_proj_weight, v_proj_weight], dim=0).T
+    
+    return multihead_attention.forward(in_features)
 
 def run_rope(
     d_k: int,
