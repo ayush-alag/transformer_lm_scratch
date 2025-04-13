@@ -191,8 +191,11 @@ class BPETrainer:
 
         return affected_pairs
 
+    def lex_key(self,b: bytes):
+        return tuple(-x for x in b) + (len(b),)
+
     def get_priority(self, pair, count):
-        return (-count, -pair[0][0], -pair[1][0])
+        return (-count, self.lex_key(pair[0]), self.lex_key(pair[1]))
 
     def merge_tokens(
         self,
