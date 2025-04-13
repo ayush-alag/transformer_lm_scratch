@@ -9,6 +9,7 @@ import pstats
 from pstats import SortKey
 from tqdm import tqdm
 import time
+import mmap
 
 from .common_tokenizer import find_chunk_boundaries
 from memory_profiler import profile
@@ -50,8 +51,12 @@ class BPETrainer:
         start, end = args
         # Each process needs its own file handle
         with open(file_path, "rb") as f:
-            f.seek(start)
-            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            # try using mmap
+            chunk = mm[start:end].decode("utf-8", errors="ignore")
+            mm.close()
+            # f.seek(start)
+            # chunk = f.read(end - start).decode("utf-8", errors="ignore")
 
             if special_token_pattern:
                 for small_chunk in re.split(special_token_pattern, chunk):
@@ -81,7 +86,7 @@ class BPETrainer:
         print("Reading and chunking input file...")
         with open(self.input_path, "rb") as f:
             boundaries = find_chunk_boundaries(
-                f, self.num_processes ** 2, "<|endoftext|>".encode("utf-8")
+                f, self.num_processes, "<|endoftext|>".encode("utf-8")
             )
 
             # Create argument pairs
@@ -98,11 +103,7 @@ class BPETrainer:
             # Create a process pool and map the work
             with mp.Pool(processes=self.num_processes) as pool:
                 # Process all chunks in parallel and get results
-                results = list(tqdm(
-                    pool.imap(worker_fn, chunk_args),
-                    total=len(chunk_args),
-                    desc="Pretokenizing chunks"
-                ))
+                results = pool.map(worker_fn, chunk_args)
 
             print("Combining results...")
             # Combine results from all processes
@@ -130,12 +131,9 @@ class BPETrainer:
         unique_token_list: list[bytes],
         pair_to_locs,
         pair_to_count,
+        heap
     ):
-        # print("BEST PAIR: ", best_pair, "\n")
-        # print("BEFORE: ", pair_to_count)
         merged_pair = best_pair[0] + best_pair[1]
-
-        # collect all old tokens to delete at the end
         tokens_to_delete = set()
 
         # now, all i need to do is update pair_to_count, pair_to_locs, and pretoken
@@ -144,8 +142,7 @@ class BPETrainer:
 
             # how many times this pretoken appears in the corpus
             pretoken_count = pretokenized_bytes_to_count[old_token]
-            # print("OLD TOKEN: ", old_token, pretoken_count)
-
+            
             # remove all pair counts for the old token
             for j in range(len(old_token) - 1):
                 pair = (old_token[j], old_token[j + 1])
@@ -154,6 +151,10 @@ class BPETrainer:
                 if pair_to_count[pair] <= 0:
                     del pair_to_count[pair]
                     del pair_to_locs[pair]
+                    if pair in heap:
+                        del heap[pair]
+                else:
+                    heap[pair] = -pair_to_count[pair]
 
             # i corresponds to indexing into old token
             new_token = []
@@ -177,6 +178,7 @@ class BPETrainer:
                 pair = (new_token[k], new_token[k + 1])
                 pair_to_count[pair] += pretoken_count
                 pair_to_locs[pair].add(token_list_idx)
+                heap[pair] = -pair_to_count[pair]
 
             tokens_to_delete.add(old_token)
 
@@ -186,6 +188,8 @@ class BPETrainer:
 
         pair_to_locs.pop(best_pair, None)
         pair_to_count.pop(best_pair, None)
+        if best_pair in heap:
+            del heap[best_pair]
 
     def merge_tokens(
         self,
@@ -197,32 +201,24 @@ class BPETrainer:
     ) -> list[tuple[bytes, bytes]]:
         merges = []
 
-        pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
-        heapq.heapify(pair_heap)
+        heap = heapdict.heapdict()
+        for pair, count in pair_to_count.items():
+            heap[pair] = -count
 
-        with tqdm(total=num_merges, desc="BPE Merges") as pbar:
-            for _ in range(num_merges):
-                # get the max pair
-                best_pair = heapq.heappop(pair_heap).pair
-
-                # merge the max pair
-                merges.append(best_pair)
-                self.merge_pair(
-                    best_pair,
-                    pretokenized_bytes_to_count,
-                    unique_token_list,
-                    pair_to_locs,
-                    pair_to_count,
-                )
-
-                pair_heap = [
-                    PairEntry(pair, count)
-                    for pair, count in pair_to_count.items()
-                    if count > 0
-                ]
-                heapq.heapify(pair_heap)
-                
-                pbar.update(1)
+        for _ in range(num_merges):
+            # get the max pair
+            best_pair, neg_count = heap.popitem()
+            
+            # merge the max pair
+            merges.append(best_pair)
+            self.merge_pair(
+                best_pair,
+                pretokenized_bytes_to_count,
+                unique_token_list,
+                pair_to_locs,
+                pair_to_count,
+                heap
+            )
 
         return merges
 
@@ -243,7 +239,7 @@ class BPETrainer:
 
         return vocab
 
-    @profile
+    #@profile
     def train_bpe(self, profile_path=None) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
         start_total = time.time()
         if profile_path:
@@ -311,3 +307,8 @@ def save_vocab_and_merges(
             mf.write(
                 f"{' '.join(str(b) for b in b1)}\t{' '.join(str(b) for b in b2)}\n"
             )
+
+def report_memory_usage():
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info().rss  # Resident Set Size in bytes
+    print(f"Memory usage (RSS): {mem / (1024 * 1024):.2f} MB")
