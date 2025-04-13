@@ -10,6 +10,9 @@ from pstats import SortKey
 from tqdm import tqdm
 import time
 import mmap
+import psutil
+import os
+import heapdict
 
 from .common_tokenizer import find_chunk_boundaries
 from memory_profiler import profile
@@ -40,7 +43,7 @@ class BPETrainer:
         self.input_path = input_path
         self.special_tokens = special_tokens
         self.num_processes = num_processes
-        
+
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         self.PAT_compiled = re.compile(PAT)
 
@@ -84,7 +87,7 @@ class BPETrainer:
             special_token_pattern = re.compile("|".join(escaped_tokens))
 
         ## Usage
-        # print("Reading and chunking input file...")
+        print("Reading and chunking input file...")
         with open(self.input_path, "rb") as f:
             boundaries = find_chunk_boundaries(
                 f, self.num_processes, "<|endoftext|>".encode("utf-8")
@@ -100,19 +103,19 @@ class BPETrainer:
                 special_token_pattern=special_token_pattern,
             )
 
-            # print(f"Pretokenizing with {self.num_processes} processes...")
+            print(f"Pretokenizing with {self.num_processes} processes...")
             # Create a process pool and map the work
             with mp.Pool(processes=self.num_processes) as pool:
                 # Process all chunks in parallel and get results
                 results = pool.map(worker_fn, chunk_args)
 
-            # print("Combining results...")
+            print("Combining results...")
             # Combine results from all processes
             for local_counts in results:
                 for token, count in local_counts.items():
                     bytes_to_count[token] += count
 
-        # print("Indexing token pairs...")
+        print("Indexing token pairs...")
         # build a unique token list that we maintain indices into
         unique_token_list = list(bytes_to_count.keys())
         pair_to_count = defaultdict(int)
@@ -135,6 +138,7 @@ class BPETrainer:
     ):
         merged_pair = best_pair[0] + best_pair[1]
         tokens_to_delete = set()
+        affected_pairs = set()  # Track pairs that get updated
 
         # now, all i need to do is update pair_to_count, pair_to_locs, and pretoken
         for token_list_idx in list(pair_to_locs[best_pair]):
@@ -142,12 +146,13 @@ class BPETrainer:
 
             # how many times this pretoken appears in the corpus
             pretoken_count = pretokenized_bytes_to_count[old_token]
-            
+
             # remove all pair counts for the old token
             for j in range(len(old_token) - 1):
                 pair = (old_token[j], old_token[j + 1])
                 pair_to_count[pair] -= pretoken_count
                 pair_to_locs[pair].discard(token_list_idx)
+                affected_pairs.add(pair)
                 if pair_to_count[pair] <= 0:
                     del pair_to_count[pair]
                     del pair_to_locs[pair]
@@ -167,13 +172,13 @@ class BPETrainer:
             # update counts
             unique_token_list[token_list_idx] = new_token
             pretokenized_bytes_to_count[new_token] += pretoken_count
-            # print("NEW TOKEN: ", new_token, pretokenized_bytes_to_count[new_token])
 
             # Recompute and add back the count for every adjacent pair in the new token.
             for k in range(len(new_token) - 1):
                 pair = (new_token[k], new_token[k + 1])
                 pair_to_count[pair] += pretoken_count
                 pair_to_locs[pair].add(token_list_idx)
+                affected_pairs.add(pair)
 
             tokens_to_delete.add(old_token)
 
@@ -183,6 +188,11 @@ class BPETrainer:
 
         pair_to_locs.pop(best_pair, None)
         pair_to_count.pop(best_pair, None)
+
+        return affected_pairs
+
+    def get_priority(self, pair, count):
+        return (-count, -pair[0][0], -pair[1][0])
 
     def merge_tokens(
         self,
@@ -194,30 +204,51 @@ class BPETrainer:
     ) -> list[tuple[bytes, bytes]]:
         merges = []
 
-        pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
-        heapq.heapify(pair_heap)
+        # pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
+        # heapq.heapify(pair_heap)
+
+        hp = heapdict.heapdict()
+        for pair, count in pair_to_count.items():
+            if count > 0:
+                hp[pair] = self.get_priority(pair, count)
 
         for _ in range(num_merges):
+            get_best_pair_time = time.time()
             # get the max pair
-            best_pair = heapq.heappop(pair_heap).pair
-            
+            best_pair, _ = hp.popitem()
+            get_best_pair_time = time.time() - get_best_pair_time
+            # print(f"Get best pair time: {get_best_pair_time:.2f} seconds")
+
             # merge the max pair
             merges.append(best_pair)
-            self.merge_pair(
+            merge_time = time.time()
+            affected_pairs = self.merge_pair(
                 best_pair,
                 pretokenized_bytes_to_count,
                 unique_token_list,
                 pair_to_locs,
                 pair_to_count
             )
-            
-            pair_heap = [
-                PairEntry(pair, count)
-                for pair, count in pair_to_count.items()
-                if count > 0
-            ]
-            
-            heapq.heapify(pair_heap)
+            merge_time = time.time() - merge_time
+            # print(f"Merge time: {merge_time:.2f} seconds")
+
+            # rebuild the heap
+            rebuild_heap_time = time.time()
+            for pair in affected_pairs:
+                if pair in pair_to_count and pair_to_count[pair] > 0:
+                    hp[pair] = self.get_priority(pair, pair_to_count[pair])
+                else:
+                    hp.pop(pair, None)
+
+            # pair_heap = [
+            #     PairEntry(pair, count)
+            #     for pair, count in pair_to_count.items()
+            #     if count > 0
+            # ]
+            rebuild_heap_time = time.time() - rebuild_heap_time
+            # print(f"Rebuild heap time: {rebuild_heap_time:.2f} seconds")
+
+            # heapq.heapify(pair_heap)
 
         return merges
 
@@ -251,7 +282,7 @@ class BPETrainer:
         )
         end_pretokenize = time.time()
         pretokenize_time = end_pretokenize - start_pretokenize
-        # print(f"Pretokenization completed in {pretokenize_time:.2f} seconds")
+        print(f"Pretokenization completed in {pretokenize_time:.2f} seconds")
 
         start_merge = time.time()
         number_merges = self.vocab_size - 256 - len(self.special_tokens)
@@ -264,22 +295,22 @@ class BPETrainer:
         )
         end_merge = time.time()
         merge_time = end_merge - start_merge
-        # print(f"Merge operations completed in {merge_time:.2f} seconds")
+        print(f"Merge operations completed in {merge_time:.2f} seconds")
 
         start_vocab = time.time()
         vocab = self.build_vocab(merges)
         end_vocab = time.time()
         vocab_time = end_vocab - start_vocab
-        # print(f"Vocabulary building completed in {vocab_time:.2f} seconds")
+        print(f"Vocabulary building completed in {vocab_time:.2f} seconds")
 
         # Print total time
         end_total = time.time()
         total_time = end_total - start_total
-        # print(f"\nTotal execution time: {total_time:.2f} seconds")
-        # print(f"  - Pretokenization: {pretokenize_time:.2f}s ({pretokenize_time/total_time*100:.1f}%)")
-        # print(f"  - Merge operations: {merge_time:.2f}s ({merge_time/total_time*100:.1f}%)")
-        # print(f"  - Vocabulary building: {vocab_time:.2f}s ({vocab_time/total_time*100:.1f}%)")
-        # print(f"  - Other overhead: {total_time - (pretokenize_time + merge_time + vocab_time):.2f}s")
+        print(f"\nTotal execution time: {total_time:.2f} seconds")
+        print(f"  - Pretokenization: {pretokenize_time:.2f}s ({pretokenize_time/total_time*100:.1f}%)")
+        print(f"  - Merge operations: {merge_time:.2f}s ({merge_time/total_time*100:.1f}%)")
+        print(f"  - Vocabulary building: {vocab_time:.2f}s ({vocab_time/total_time*100:.1f}%)")
+        print(f"  - Other overhead: {total_time - (pretokenize_time + merge_time + vocab_time):.2f}s")
 
         if profile_path:
             profiler.disable()

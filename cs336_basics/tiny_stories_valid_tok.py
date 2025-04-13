@@ -7,3 +7,5 @@ save_vocab_and_merges(vocab,
                       "/home/c-aalag/results/tiny_valid_vocab.json",
                       "/home/c-aalag/results/tiny_valid_merges.txt")
 report_memory_usage()
+
+# srun --partition=a1-batch --qos=a1-batch-qos --gpus=1 --time=2:00:00 --pty bash -c "uv run python -m cs336_basics.tiny_stories_valid_tok > /home/c-aalag/results/valid_stdout.log"
