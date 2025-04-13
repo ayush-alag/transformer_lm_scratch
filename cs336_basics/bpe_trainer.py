@@ -34,7 +34,6 @@ class PairEntry:
     def __repr__(self):
         return f"PairEntry({self.pair}, {self.count})"
 
-
 class BPETrainer:
     def __init__(self, vocab_size, input_path, special_tokens, num_processes=1):
         self.vocab_size = vocab_size
@@ -63,12 +62,14 @@ class BPETrainer:
                     for match in re.finditer(self.PAT_compiled, small_chunk):
                         # tuple of single bytes, each is a bytes type
                         raw_bytes = match.group(0).encode("utf-8")
-                        bytes_to_count[tuple(raw_bytes)] += 1
+                        token_bytes = tuple(bytes([b]) for b in raw_bytes)
+                        bytes_to_count[token_bytes] += 1
             else:
                 for match in re.finditer(self.PAT_compiled, chunk):
                     # tuple of single bytes, each is a bytes type
                     raw_bytes = match.group(0).encode("utf-8")
-                    bytes_to_count[tuple(raw_bytes)] += 1
+                    token_bytes = tuple(bytes([b]) for b in raw_bytes)
+                    bytes_to_count[token_bytes] += 1
 
         return bytes_to_count
 
@@ -130,8 +131,7 @@ class BPETrainer:
         pretokenized_bytes_to_count: dict[tuple[bytes], int],
         unique_token_list: list[bytes],
         pair_to_locs,
-        pair_to_count,
-        heap
+        pair_to_count
     ):
         merged_pair = best_pair[0] + best_pair[1]
         tokens_to_delete = set()
@@ -151,10 +151,6 @@ class BPETrainer:
                 if pair_to_count[pair] <= 0:
                     del pair_to_count[pair]
                     del pair_to_locs[pair]
-                    if pair in heap:
-                        del heap[pair]
-                else:
-                    heap[pair] = -pair_to_count[pair]
 
             # i corresponds to indexing into old token
             new_token = []
@@ -178,7 +174,6 @@ class BPETrainer:
                 pair = (new_token[k], new_token[k + 1])
                 pair_to_count[pair] += pretoken_count
                 pair_to_locs[pair].add(token_list_idx)
-                heap[pair] = -pair_to_count[pair]
 
             tokens_to_delete.add(old_token)
 
@@ -188,8 +183,6 @@ class BPETrainer:
 
         pair_to_locs.pop(best_pair, None)
         pair_to_count.pop(best_pair, None)
-        if best_pair in heap:
-            del heap[best_pair]
 
     def merge_tokens(
         self,
@@ -201,13 +194,12 @@ class BPETrainer:
     ) -> list[tuple[bytes, bytes]]:
         merges = []
 
-        heap = heapdict.heapdict()
-        for pair, count in pair_to_count.items():
-            heap[pair] = -count
+        pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
+        heapq.heapify(pair_heap)
 
         for _ in range(num_merges):
             # get the max pair
-            best_pair, neg_count = heap.popitem()
+            best_pair = heapq.heappop(pair_heap).pair
             
             # merge the max pair
             merges.append(best_pair)
@@ -216,9 +208,16 @@ class BPETrainer:
                 pretokenized_bytes_to_count,
                 unique_token_list,
                 pair_to_locs,
-                pair_to_count,
-                heap
+                pair_to_count
             )
+            
+            pair_heap = [
+                PairEntry(pair, count)
+                for pair, count in pair_to_count.items()
+                if count > 0
+            ]
+            
+            heapq.heapify(pair_heap)
 
         return merges
 
