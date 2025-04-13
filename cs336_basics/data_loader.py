@@ -15,13 +15,6 @@ def get_batch(token_ids, batch_size, context_length, device) -> tuple[Tensor, Te
     return torch.tensor(np.array(batch), device=device, dtype=torch_dtype), \
         torch.tensor(np.array(next_tokens_batch), device=device, dtype=torch_dtype)
 
-# TODO: check dtype
-def get_batch_file(filename, batch_size, context_length, device):
-    # Assume the tokens were saved with np.save and are of dtype=np.int64.
-    token_ids = np.memmap(filename, mode='r', dtype=np.int64)
-
-    return get_batch(token_ids, batch_size, context_length, device)
-
 def np_dtype_to_torch_dtype(np_dtype):
     if np_dtype == np.int32:
         return torch.int32
