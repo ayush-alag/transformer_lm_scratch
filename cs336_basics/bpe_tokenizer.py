@@ -36,6 +36,9 @@ class BPETokenizer:
         return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
 
     def apply_merges(self, pre_token):
+        # repeatedly traverse the token for candidate merges,
+        # choose the one with the highest priority,
+        # merge it, and repeat
         while True:
             merge_candidates = []
             
@@ -48,6 +51,7 @@ class BPETokenizer:
             if not merge_candidates:
                 break
 
+            # highest priority + earliest in the token
             index = min(merge_candidates)[1]
             merged_pair = pre_token[index] + pre_token[index+1]
             pre_token = pre_token[:index] + [merged_pair] + pre_token[index+2:]
