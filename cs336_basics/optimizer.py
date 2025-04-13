@@ -91,7 +91,6 @@ def learning_rate_schedule(t, a_max, a_min, t_w, t_c):
 def grad_clipping(parameters, max_l2_norm, eps=1e-6):
     params_with_grad = [p for p in parameters if p.grad is not None]
 
-    # If no gradient exists, do nothing.
     if not params_with_grad:
         return
 
