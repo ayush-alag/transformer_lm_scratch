@@ -80,6 +80,30 @@ def test_sgd(lr: float, iterations: int):
 
     return losses
 
+def learning_rate_schedule(t, a_max, a_min, t_w, t_c):
+    if t < t_w:
+        return a_max * (t / t_w)
+    elif t_w <= t <= t_c:
+        return a_min + 0.5 * (a_max - a_min) * (1 + math.cos(math.pi * (t - t_w) / (t_c - t_w)))
+    else:
+        return a_min
+
+def grad_clipping(parameters, max_l2_norm, eps=1e-6):
+    params_with_grad = [p for p in parameters if p.grad is not None]
+
+    # If no gradient exists, do nothing.
+    if not params_with_grad:
+        return
+
+    # Compute the global L2 norm for all gradients.
+    total_norm_sq = sum(p.grad.data.pow(2).sum() for p in params_with_grad)
+    global_norm = total_norm_sq.sqrt().item()  # convert tensor -> float
+
+    # If the global norm exceeds max_l2_norm, scale all gradients.
+    if global_norm > max_l2_norm:
+        for p in params_with_grad:
+            p.grad.data *= max_l2_norm / (global_norm + eps)
+
 # lr1_losses = test_sgd(1, 10)
 # lr10_losses = test_sgd(10, 10)
 # lr100_losses = test_sgd(100, 10)

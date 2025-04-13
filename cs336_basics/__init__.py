@@ -7,6 +7,6 @@ from .transformer import SwigluFFN, TransformerBlock, TransformerLM
 from .rope import RotaryPositionalEmbedding
 from .attention import scaled_dot_product_attention, MultiheadSelfAttention
 from .loss import cross_entropy_loss
-from .optimizer import AdamW
+from .optimizer import AdamW, learning_rate_schedule, grad_clipping
 
 __version__ = importlib.metadata.version("cs336_basics")
