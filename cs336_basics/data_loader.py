@@ -11,8 +11,9 @@ def get_batch(token_ids, batch_size, context_length, device) -> tuple[Tensor, Te
     batch = [token_ids[i:(i + context_length)] for i in indices]
     next_tokens_batch = [token_ids[(i + 1):(i + context_length + 1)] for i in indices]
 
-    return torch.Tensor(np.array(batch), device=device, dtype=token_ids.dtype), \
-           torch.Tensor(np.array(next_tokens_batch), device=device, dtype=token_ids.dtype)
+    torch_dtype = np_dtype_to_torch_dtype(token_ids.dtype)
+    return torch.tensor(np.array(batch), device=device, dtype=torch_dtype), \
+        torch.tensor(np.array(next_tokens_batch), device=device, dtype=torch_dtype)
 
 # TODO: check dtype
 def get_batch_file(filename, batch_size, context_length, device):
@@ -20,3 +21,15 @@ def get_batch_file(filename, batch_size, context_length, device):
     token_ids = np.memmap(filename, mode='r', dtype=np.int64)
 
     return get_batch(token_ids, batch_size, context_length, device)
+
+def np_dtype_to_torch_dtype(np_dtype):
+    if np_dtype == np.int32:
+        return torch.int32
+    elif np_dtype == np.int64:
+        return torch.int64
+    elif np_dtype == np.float32:
+        return torch.float32
+    elif np_dtype == np.float64:
+        return torch.float64
+    else:
+        raise ValueError("Unsupported dtype: " + str(np_dtype))
