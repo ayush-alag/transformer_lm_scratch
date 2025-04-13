@@ -6,7 +6,8 @@ from tqdm import tqdm
 from .data_loader import get_batch
 from .transformer import TransformerLM
 from .optimizer import AdamW
-from .loss import cross_entropy
+from .loss import cross_entropy_loss
+
 def save_checkpoint(model, optimizer, iteration, out) :
     obj = {
         'model': model.state_dict(),
@@ -63,7 +64,7 @@ def main(args):
 
         inputs, targets = get_batch(train_data, args.batch_size, args.context_length, device)
         outputs = model(inputs)  # outputs shape: (batch_size, context_length, d_model)
-        loss = cross_entropy(outputs, targets)
+        loss = cross_entropy_loss(outputs, targets)
         loss.backward()
         optimizer.step()
 
@@ -76,7 +77,7 @@ def main(args):
             with torch.no_grad():
                 val_inputs, val_targets = get_batch(val_data, args.batch_size, args.context_length, device)
                 val_outputs = model(val_inputs)
-                val_loss = cross_entropy(val_outputs, val_targets)
+                val_loss = cross_entropy_loss(val_outputs, val_targets)
             print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}")
 
         # checkpointing
