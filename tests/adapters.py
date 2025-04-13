@@ -12,7 +12,7 @@ from torch import Tensor
 from cs336_basics import BPETrainer, BPETokenizer, Linear, Embedding, RMSNorm, \
                          SwigluFFN, softmax, RotaryPositionalEmbedding, \
                          scaled_dot_product_attention, silu, MultiheadSelfAttention, \
-                         TransformerBlock, TransformerLM, cross_entropy_loss
+                         TransformerBlock, TransformerLM, cross_entropy_loss, AdamW
 
 def run_linear(
     d_in: int,
@@ -512,7 +512,7 @@ def get_adamw_cls() -> type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
