@@ -40,9 +40,11 @@ class BPETrainer:
         self.input_path = input_path
         self.special_tokens = special_tokens
         self.num_processes = num_processes
+        
+        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        self.PAT_compiled = re.compile(PAT)
 
     def pretokenize_chunk(self, args, file_path, special_token_pattern=None):
-        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         bytes_to_count = defaultdict(int)
 
         start, end = args
@@ -51,16 +53,17 @@ class BPETrainer:
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
 
-            segments = [chunk]
             if special_token_pattern:
-                segments = special_token_pattern.split(chunk)
-
-            for segment in segments:
-                for match in re.finditer(PAT, segment):
+                for small_chunk in re.split(special_token_pattern, chunk):
+                    for match in re.finditer(self.PAT_compiled, small_chunk):
+                        # tuple of single bytes, each is a bytes type
+                        raw_bytes = match.group(0).encode("utf-8")
+                        bytes_to_count[tuple(raw_bytes)] += 1
+            else:
+                for match in re.finditer(self.PAT_compiled, chunk):
                     # tuple of single bytes, each is a bytes type
                     raw_bytes = match.group(0).encode("utf-8")
-                    token_bytes = tuple(bytes([b]) for b in raw_bytes)
-                    bytes_to_count[token_bytes] += 1
+                    bytes_to_count[tuple(raw_bytes)] += 1
 
         return bytes_to_count
 
@@ -156,11 +159,7 @@ class BPETrainer:
             new_token = []
             i = 0
             while i < len(old_token):
-                if (
-                    old_token[i] == best_pair[0]
-                    and i < len(old_token) - 1
-                    and old_token[i + 1] == best_pair[1]
-                ):
+                if old_token[i] == best_pair[0] and i < len(old_token) - 1 and old_token[i + 1] == best_pair[1]:
                     new_token.append(merged_pair)
                     i += 2
                 else:
@@ -185,11 +184,8 @@ class BPETrainer:
         for token in tokens_to_delete:
             pretokenized_bytes_to_count.pop(token, None)
 
-        # After all token updates are complete, rebuild the heap
         pair_to_locs.pop(best_pair, None)
         pair_to_count.pop(best_pair, None)
-
-        # print("AFTER: ", pair_to_count)
 
     def merge_tokens(
         self,
@@ -290,7 +286,6 @@ class BPETrainer:
         # print(f"  - Vocabulary building: {vocab_time:.2f}s ({vocab_time/total_time*100:.1f}%)")
         # print(f"  - Other overhead: {total_time - (pretokenize_time + merge_time + vocab_time):.2f}s")
 
-
         if profile_path:
             profiler.disable()
             stats = pstats.Stats(profiler).strip_dirs().sort_stats(SortKey.CUMULATIVE)
@@ -298,7 +293,6 @@ class BPETrainer:
             stats.dump_stats(profile_path)
 
         return vocab, merges
-
 
 # serialize to use later
 def save_vocab_and_merges(
