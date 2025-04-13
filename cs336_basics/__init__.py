@@ -8,5 +8,7 @@ from .rope import RotaryPositionalEmbedding
 from .attention import scaled_dot_product_attention, MultiheadSelfAttention
 from .loss import cross_entropy_loss
 from .optimizer import AdamW, learning_rate_schedule, grad_clipping
+from .data_loader import get_batch
+from .training import save_checkpoint, load_checkpoint
 
 __version__ = importlib.metadata.version("cs336_basics")
