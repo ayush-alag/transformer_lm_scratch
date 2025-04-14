@@ -8,10 +8,10 @@ import wandb
 import time
 import json
 
-from .data_loader import get_batch
-from .transformer import TransformerLM
-from .optimizer import AdamW
-from .loss import cross_entropy_loss
+from cs336_basics.data_loader import get_batch
+from cs336_basics.transformer import TransformerLM
+from cs336_basics.optimizer import AdamW
+from cs336_basics.loss import cross_entropy_loss
 
 def save_checkpoint(model, optimizer, iteration, out) :
     obj = {
@@ -33,7 +33,14 @@ def main(args):
         with open(args.config, "r") as f:
             config = yaml.safe_load(f)
         for key, val in config.items():
-            setattr(args, key, val)
+            if key == "lr" or key == "weight_decay" or key == "rope_theta" or key == "eps":
+                setattr(args, key, float(val))
+            elif key == "batch_size" or key == "context_length" or key == "num_iterations" or key == "log_freq" or key == "val_freq" or key == "ckpt_freq" or key == "vocab_size" or key == "d_model" or key == "num_heads" or key == "d_ff" or key == "num_layers":
+                setattr(args, key, int(val))
+            elif key == "betas":
+                setattr(args, key, tuple(float(x) for x in val))
+            else:
+                setattr(args, key, val)
 
     if args.use_wandb:
         wandb.init(project=args.project, name=args.experiment_name, config=vars(args))
@@ -42,13 +49,14 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
     print(f"Using device: {device}")
 
-    train_data = np.memmap(args.train_data, mode='r', dtype=np.int64)
+    train_data = np.memmap(args.train_data, mode='r', dtype=np.uint16)
     if args.val_data:
-        val_data = np.memmap(args.val_data, mode='r', dtype=np.int64)
+        val_data = np.memmap(args.val_data, mode='r', dtype=np.uint16)
     else:
         val_data = None
 
     token_positions = np.arange(args.context_length)
+    print(args.vocab_size, args.context_length, args.num_layers, args.d_model, args.num_heads, args.d_ff, args.rope_theta)
     model = TransformerLM(
         vocab_size=args.vocab_size,
         context_length=args.context_length,
@@ -158,7 +166,7 @@ if __name__ == "__main__":
 
     # training args
     parser.add_argument("--context_length", type=int, default=128, help="Context length for each training example")
-    parser.add_argument("--ckpt_dir", type=str, required=True, help="Directory for saving checkpoints")
+    parser.add_argument("--ckpt_dir", type=str, default="/home/c-aalag/results/checkpoints", help="Directory for saving checkpoints")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--num_iterations", type=int, default=10000, help="Number of training iterations")
     parser.add_argument("--log_freq", type=int, default=100, help="Logging frequency (in iterations)")
@@ -175,7 +183,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
 
     # data args
-    parser.add_argument("--train_data", type=str, required=True, help="Path to training data (np.memmap file)")
+    parser.add_argument("--train_data", type=str, help="Path to training data (np.memmap file)")
     parser.add_argument("--val_data", type=str, default=None, help="Path to validation data (np.memmap file)")
     args = parser.parse_args()
 

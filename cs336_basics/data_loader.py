@@ -24,5 +24,7 @@ def np_dtype_to_torch_dtype(np_dtype):
         return torch.float32
     elif np_dtype == np.float64:
         return torch.float64
+    elif np_dtype == np.uint16:
+        return int
     else:
         raise ValueError("Unsupported dtype: " + str(np_dtype))
