@@ -10,8 +10,8 @@ import json
 
 from cs336_basics.data_loader import get_batch
 from cs336_basics.transformer import TransformerLM
-from cs336_basics.optimizer import AdamW
-from cs336_basics.loss import cross_entropy_loss
+from cs336_basics.optimizer import AdamW, grad_clipping, learning_rate_schedule
+from cs336_basics.loss import cross_entropy_loss, perplexity
 
 def save_checkpoint(model, optimizer, iteration, out) :
     obj = {
@@ -100,19 +100,28 @@ def main(args):
         outputs = model(inputs)  # outputs shape: (batch_size, context_length, d_model)
         loss = cross_entropy_loss(outputs, targets)
         loss.backward()
+
+        grad_clipping(model.parameters(), args.max_grad_norm)
+        new_lr = learning_rate_schedule(iteration, a_max=args.lr, a_min=0.1*args.lr, t_w=args.warmup_steps, t_c=args.num_iterations)
+        for group in optimizer.param_groups:
+            group['lr'] = new_lr
+
         optimizer.step()
 
         if iteration % args.log_freq == 0:
+            train_perplexity = perplexity(outputs, targets).item()
             # for wandb logging
             current_time = time.time() - start_time
             log_entry = {
                 'iteration': iteration,
                 'train_loss': loss.item(),
+                'train_perplexity': train_perplexity,
                 'elapsed_time': current_time,
+                'learning_rate': new_lr
             }
             train_log.append(log_entry)
 
-            print(f"Iteration {iteration}/{args.num_iterations}, Training Loss: {loss.item():.4f}, Time: {current_time:.2f}s")
+            print(f"Iteration {iteration}/{args.num_iterations}, Training Loss: {loss.item():.4f}, Perplexity: {train_perplexity:.2f}, Time: {current_time:.2f}s")
             if args.use_wandb:
                 wandb.log(log_entry)
 
@@ -123,15 +132,17 @@ def main(args):
                 val_inputs, val_targets = get_batch(val_data, args.batch_size, args.context_length, device)
                 val_outputs = model(val_inputs)
                 val_loss = cross_entropy_loss(val_outputs, val_targets)
+                val_perplexity = perplexity(val_outputs, val_targets).item()
 
             current_time = time.time() - start_time
             val_entry = {
                 'iteration': iteration,
                 'val_loss': val_loss.item(),
+                'val_perplexity': val_perplexity,
                 'elapsed_time': current_time,
             }
             val_log.append(val_entry)
-            print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}, Time: {current_time:.2f}s")
+            print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}, Perplexity: {val_perplexity:.2f}, Time: {current_time:.2f}s")
             if args.use_wandb:
                 wandb.log(val_entry)
 
@@ -142,7 +153,7 @@ def main(args):
             print(f"Checkpoint saved to {ckpt_path}")
 
     # save the logs just in case
-    log_file = os.path.join(args.ckpt_dir, "experiment_log.json")
+    log_file = os.path.join(args.ckpt_dir, f"{args.experiment_name}_log.json")
     with open(log_file, "w", encoding="utf-8") as lf:
         json.dump(train_log, lf, indent=2)
     print(f"Experiment log saved to {log_file}")
@@ -167,6 +178,10 @@ if __name__ == "__main__":
     parser.add_argument("--betas", type=tuple, default=(0.9, 0.999), help="Betas for AdamW")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay for AdamW")
+
+    # LR scheduling and grad clipping
+    parser.add_argument("--warmup_steps", type=int, default=500, help="Number of warmup steps")
+    parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm for clipping")
 
     # training args
     parser.add_argument("--context_length", type=int, default=128, help="Context length for each training example")
