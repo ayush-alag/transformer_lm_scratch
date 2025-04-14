@@ -1,37 +1,25 @@
-from .bpe_tokenizer import BPETokenizer
-from .bpe_trainer import BPETrainer
+from cs336_basics.bpe_tokenizer import BPETokenizer
 import argparse
-import json
+import cProfile
+import pstats
+import io
+import numpy as np
 
-def get_vocab_and_merges(vocab_file, merges_file):
-    with open(vocab_file, 'r', encoding='utf-8') as vf:
-        vocab = json.load(vf)
-        vocab = {int(k): v for k, v in vocab.items()}
-
-    merges = []
-    with open(merges_file, 'r', encoding='utf-8') as mf:
-        for line in mf:
-            b1_str, b2_str = line.strip().split('\t')
-            b1 = tuple(bytes([b]) for b in b1_str.split())
-            b2 = tuple(bytes([b]) for b in b2_str.split())
-            merges.append((b1, b2))
-    return vocab, merges
-
-def encode_text(input_file, output_file, tokenizer):
-    with open(input_file, 'r', encoding='utf-8') as f:
-        text = f.read()
-
-    token_ids = tokenizer.encode(text)
-    tokenizer.serialize(token_ids, output_file)
-        
-    original_size = len(text.encode('utf-8'))
-    # each token id is represented as uint16
-    encoded_size = len(token_ids) * 2  
-    compression_ratio = original_size / encoded_size
+def encode_text(input_file, output_file, tokenizer, max_files=None):
+    mm = np.memmap(input_file, mode='r', dtype='uint8')
+    # Convert the mapped bytes to a single bytes object and decode.
+    # (If the file is huge, you might want to split it further without converting the entire file.)
+    text = mm.tobytes().decode('utf-8', errors='replace')
     
-    print("Original size (bytes):", original_size)
-    print("Encoded size (bytes):", encoded_size)
-    print("Compression ratio: {:.2f}".format(compression_ratio))
+    # Split the text into segments using the delimiter.
+    segments = text.split('<|endoftext|>')[:max_files]
+    text_to_encode = '<|endoftext|>'.join(segments)
+    
+    # with open(input_file, 'r', encoding='utf-8') as f:
+    #     text = f.read()
+
+    token_ids = tokenizer.encode(text, max_chunks=max_files)
+    tokenizer.serialize(token_ids, output_file)
 
 def main():
     parser = argparse.ArgumentParser(description='Encode text using BPE tokenizer')
@@ -41,9 +29,17 @@ def main():
     parser.add_argument('--output', required=True, help='Output file for encoded text')
     args = parser.parse_args()
 
-    vocab, merges = get_vocab_and_merges(args.vocab, args.merges)
-    tokenizer = BPETokenizer(vocab, merges)
+    special_tokens = ["<|endoftext|>"]
+    tokenizer = BPETokenizer.from_files(args.vocab, args.merges, special_tokens)
+    pr = cProfile.Profile()
+    pr.enable()
     encode_text(args.input, args.output, tokenizer)
+    pr.disable()
+    
+    s = io.StringIO()
+    ps = pstats.Stats(pr, stream=s).sort_stats('cumtime')
+    ps.print_stats()
+    print(s.getvalue())
 
 if __name__ == '__main__':
     main()
