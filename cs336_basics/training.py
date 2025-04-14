@@ -71,7 +71,7 @@ def main(args):
         no_rope=args.no_rope,
         post_norm=args.post_norm,
         no_norm=args.no_norm,
-        silu=args.silu
+        only_silu=args.only_silu
     )
     model.to(device)
 
@@ -195,7 +195,7 @@ if __name__ == "__main__":
     parser.add_argument('--no_rope', action='store_true', help='No Rope')
     parser.add_argument('--post_norm', action='store_true', help='Post Norm')
     parser.add_argument('--no_norm', action='store_true', help='No Norm')
-    parser.add_argument('--silu', action='store_true', help='SiLU')
+    parser.add_argument('--only_silu', action='store_true', help='Only SiLU')
 
     args = parser.parse_args()
 

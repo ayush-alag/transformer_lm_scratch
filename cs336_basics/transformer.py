@@ -4,13 +4,16 @@ from .base_layers import Linear, RMSNorm, silu, Embedding, softmax
 
 
 class SwigluFFN(nn.Module):
-    def __init__(self, d_model: int, d_ff=None, device=None, dtype=None, silu=False):
+    def __init__(self, d_model: int, d_ff=None, device=None, dtype=None, only_silu=False):
         super().__init__()
 
         self.d_ff = d_ff if d_ff else int(round((8 / 3) * d_model / 64) * 64)
-        if silu:
+        if only_silu:
+            print("here")
             # we want to increase d_ff by 1.5x and round to the nearest multiple of 64
             self.d_ff = int(round(1.5 * self.d_ff / 64) * 64)
+
+        self.only_silu = only_silu
 
         self.w_1 = Linear(d_model, self.d_ff, device, dtype)
         self.w_2 = Linear(self.d_ff, d_model, device, dtype)
@@ -21,7 +24,7 @@ class SwigluFFN(nn.Module):
         silu_x = silu(self.w_1(x))
 
         # silu means no GLU
-        if silu:
+        if self.only_silu:
             return self.w_2(silu_x)
         else:
             inner_product = silu_x * self.w_3(x)
@@ -42,7 +45,7 @@ class TransformerBlock(nn.Module):
         no_rope=False,
         post_norm=False,
         no_norm=False,
-        silu=False
+        only_silu=False
     ):
         super().__init__()
 
@@ -62,7 +65,7 @@ class TransformerBlock(nn.Module):
 
         self.attention_norm = RMSNorm(d_model, device=device, dtype=dtype)
 
-        self.ffn = SwigluFFN(d_model, d_ff, device=device, dtype=dtype, silu=silu)
+        self.ffn = SwigluFFN(d_model, d_ff, device=device, dtype=dtype, only_silu=only_silu)
         self.ffn_norm = RMSNorm(d_model, device=device, dtype=dtype)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -94,7 +97,7 @@ class TransformerLM(nn.Module):
         no_rope=False,
         post_norm=False,
         no_norm=False,
-        silu=False
+        only_silu=False
     ):
         super().__init__()
 
@@ -115,9 +118,11 @@ class TransformerLM(nn.Module):
                     no_rope=no_rope,
                     post_norm=post_norm,
                     no_norm=no_norm,
-                    silu=silu
+                    only_silu=only_silu
                 )
             )
+
+        self.no_norm = no_norm
 
         self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
         self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
