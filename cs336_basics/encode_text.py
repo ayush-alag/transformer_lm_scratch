@@ -1,5 +1,5 @@
-from .bpe_tokenizer import BPETokenizer
-from .bpe_trainer import BPETrainer
+from cs336_basics.bpe_tokenizer import BPETokenizer
+from cs336_basics.bpe_trainer import BPETrainer
 import argparse
 import json
 
