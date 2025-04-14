@@ -68,6 +68,10 @@ def main(args):
         token_positions=token_positions,
         device=device,
         dtype=torch.float32,  # TODO: typically your model parameters are float32
+        no_rope=args.no_rope,
+        post_norm=args.post_norm,
+        no_norm=args.no_norm,
+        silu=args.silu
     )
     model.to(device)
 
@@ -133,7 +137,7 @@ def main(args):
 
         # checkpointing
         if iteration % args.ckpt_freq == 0:
-            ckpt_path = os.path.join(args.ckpt_dir, f"model_iter_{iteration}.pt")
+            ckpt_path = os.path.join(args.ckpt_dir, f"{args.experiment_name}_model_iter_{iteration}.pt")
             save_checkpoint(model, optimizer, iteration, ckpt_path)
             print(f"Checkpoint saved to {ckpt_path}")
 
@@ -185,6 +189,14 @@ if __name__ == "__main__":
     # data args
     parser.add_argument("--train_data", type=str, help="Path to training data (np.memmap file)")
     parser.add_argument("--val_data", type=str, default=None, help="Path to validation data (np.memmap file)")
+
+    # ablation arg
+    # no-rope, post-norm, no-norm, silu
+    parser.add_argument('--no_rope', action='store_true', help='No Rope')
+    parser.add_argument('--post_norm', action='store_true', help='Post Norm')
+    parser.add_argument('--no_norm', action='store_true', help='No Norm')
+    parser.add_argument('--silu', action='store_true', help='SiLU')
+
     args = parser.parse_args()
 
     # make the checkpoint directory

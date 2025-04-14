@@ -27,6 +27,7 @@ class MultiheadSelfAttention(nn.Module):
         token_positions=None,
         device=None,
         dtype=None,
+        no_rope=False,
     ):
         super().__init__()
 
@@ -39,7 +40,7 @@ class MultiheadSelfAttention(nn.Module):
         )  # store q, k, v together
         self.w_o = Linear(self.d_kv * num_heads, d_model, device=device, dtype=dtype)
 
-        if rope_theta and max_seq_len:
+        if rope_theta and max_seq_len and not no_rope:
             self.rope = RotaryPositionalEmbedding(
                 theta=rope_theta,
                 d_k=self.d_kv,
