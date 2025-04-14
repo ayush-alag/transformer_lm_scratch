@@ -39,6 +39,8 @@ def main(args):
                 setattr(args, key, int(val))
             elif key == "betas":
                 setattr(args, key, tuple(float(x) for x in val))
+            elif key == "no_rope" or key == "post_norm" or key == "no_norm" or key == "only_silu":
+                setattr(args, key, bool(val))
             else:
                 setattr(args, key, val)
 
