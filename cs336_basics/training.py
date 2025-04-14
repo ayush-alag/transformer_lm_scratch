@@ -8,10 +8,10 @@ import wandb
 import time
 import json
 
-from .data_loader import get_batch
-from .transformer import TransformerLM
-from .optimizer import AdamW
-from .loss import cross_entropy_loss
+from cs336_basics.data_loader import get_batch
+from cs336_basics.transformer import TransformerLM
+from cs336_basics.optimizer import AdamW
+from cs336_basics.loss import cross_entropy_loss
 
 def save_checkpoint(model, optimizer, iteration, out) :
     obj = {
