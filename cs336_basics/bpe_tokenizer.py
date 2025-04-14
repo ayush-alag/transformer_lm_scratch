@@ -105,7 +105,7 @@ class BPETokenizer:
                 if max_chunks and num_chunks >= max_chunks:
                     break
 
-                if num_chunks % 10000 == 0:
+                if num_chunks % 100000 == 0:
                     end_time = time.time()
                     elapsed = end_time - start_time
                     mb = total_bytes / (1024 ** 2)
