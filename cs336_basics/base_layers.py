@@ -32,7 +32,6 @@ class Linear(nn.Module):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        # Apply the linear transformation to theinput.
         return einsum(x, self.weights_transposed, "... d_in, d_in d_out -> ... d_out")
 
 
