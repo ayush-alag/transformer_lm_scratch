@@ -3,6 +3,11 @@ import os
 import numpy as np
 import argparse
 from tqdm import tqdm
+import yaml
+import wandb
+import time
+import json
+
 from .data_loader import get_batch
 from .transformer import TransformerLM
 from .optimizer import AdamW
@@ -24,6 +29,15 @@ def load_checkpoint(src, model, optimizer) :
     return obj['iteration']
 
 def main(args):
+    if args.config:
+        with open(args.config, "r") as f:
+            config = yaml.safe_load(f)
+        for key, val in config.items():
+            setattr(args, key, val)
+
+    if args.use_wandb:
+        wandb.init(project=args.project, name=args.experiment_name, config=vars(args))
+
     # determine device
     device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
     print(f"Using device: {device}")
@@ -34,7 +48,6 @@ def main(args):
     else:
         val_data = None
 
-    # TODO: is this correct for token_positions?
     token_positions = np.arange(args.context_length)
     model = TransformerLM(
         vocab_size=args.vocab_size,
@@ -48,16 +61,25 @@ def main(args):
         device=device,
         dtype=torch.float32,  # TODO: typically your model parameters are float32
     )
+    model.to(device)
 
     # build the optimizer
-    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, eps=args.eps, betas=args.betas)
+    optimizer = AdamW(model.parameters(),
+                      lr=args.lr,
+                      weight_decay=args.weight_decay,
+                      eps=args.eps,
+                      betas=args.betas)
 
     starting_iteration = 0
     if args.checkpoint:
         starting_iteration = load_checkpoint(args.checkpoint, model, optimizer)
 
+    train_log = []
+    val_log = []
+
     # training loop
     print("Starting training loop...")
+    start_time = time.time()
     for iteration in tqdm(range(starting_iteration, args.num_iterations + 1), desc="Training"):
         model.train()
         optimizer.zero_grad()
@@ -69,7 +91,18 @@ def main(args):
         optimizer.step()
 
         if iteration % args.log_freq == 0:
-            print(f"Iteration {iteration}/{args.num_iterations}, Training Loss: {loss.item():.4f}")
+            # for wandb logging
+            current_time = time.time() - start_time
+            log_entry = {
+                'iteration': iteration,
+                'train_loss': loss.item(),
+                'elapsed_time': current_time,
+            }
+            train_log.append(log_entry)
+
+            print(f"Iteration {iteration}/{args.num_iterations}, Training Loss: {loss.item():.4f}, Time: {current_time:.2f}s")
+            if args.use_wandb:
+                wandb.log(log_entry)
 
         # evaluate on the validation dataset
         if val_data is not None and iteration % args.val_freq == 0:
@@ -78,7 +111,17 @@ def main(args):
                 val_inputs, val_targets = get_batch(val_data, args.batch_size, args.context_length, device)
                 val_outputs = model(val_inputs)
                 val_loss = cross_entropy_loss(val_outputs, val_targets)
-            print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}")
+
+            current_time = time.time() - start_time
+            val_entry = {
+                'iteration': iteration,
+                'val_loss': val_loss.item(),
+                'elapsed_time': current_time,
+            }
+            val_log.append(val_entry)
+            print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}, Time: {current_time:.2f}s")
+            if args.use_wandb:
+                wandb.log(val_entry)
 
         # checkpointing
         if iteration % args.ckpt_freq == 0:
@@ -86,8 +129,19 @@ def main(args):
             save_checkpoint(model, optimizer, iteration, ckpt_path)
             print(f"Checkpoint saved to {ckpt_path}")
 
+    # save the logs just in case
+    log_file = os.path.join(args.ckpt_dir, "experiment_log.json")
+    with open(log_file, "w", encoding="utf-8") as lf:
+        json.dump(train_log, lf, indent=2)
+    print(f"Experiment log saved to {log_file}")
+
+    # finish and close wandb
+    if args.use_wandb:
+        wandb.finish()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training script for Transformer model")
+    parser.add_argument("--config", type=str, default=None, help="Path to YAML config file")
     # model args
     parser.add_argument("--d_model", type=int, default=512, help="Dimensionality of model features")
     parser.add_argument("--num_heads", type=int, default=8, help="Number of attention heads")
@@ -111,6 +165,11 @@ if __name__ == "__main__":
     parser.add_argument("--val_freq", type=int, default=500, help="Validation frequency (in iterations)")
     parser.add_argument("--ckpt_freq", type=int, default=1000, help="Checkpoint saving frequency (in iterations)")
     parser.add_argument("--no_cuda", action="store_true", help="Disable CUDA")
+
+    # wandb args
+    parser.add_argument("--use_wandb", action="store_true", help="Use wandb for logging")
+    parser.add_argument("--project", type=str, default="transformer_lm_experiments", help="Wandb project name")
+    parser.add_argument("--experiment_name", type=str, default="baseline_experiment", help="Wandb experiment name")
 
     # checkpoint args
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to checkpoint file")
