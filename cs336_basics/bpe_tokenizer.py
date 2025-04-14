@@ -17,9 +17,10 @@ class BPETokenizer:
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         self.PAT_compiled = re.compile(PAT)
 
-        sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
-        escaped_tokens = [re.escape(token) for token in sorted_special_tokens]
-        self.special_token_pattern = re.compile("(" + "|".join(escaped_tokens) + ")")
+        if self.special_tokens:
+            sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+            escaped_tokens = [re.escape(token) for token in sorted_special_tokens]
+            self.special_token_pattern = re.compile("(" + "|".join(escaped_tokens) + ")")
 
     # TODO test this... with serialize + deserialize
     @classmethod
