@@ -84,7 +84,7 @@ class BPETrainer:
             special_token_pattern = re.compile("|".join(escaped_tokens))
 
         ## Usage
-        print("Reading and chunking input file...")
+        # print("Reading and chunking input file...")
         with open(self.input_path, "rb") as f:
             boundaries = find_chunk_boundaries(
                 f, self.num_processes, "<|endoftext|>".encode("utf-8")
@@ -268,7 +268,7 @@ class BPETrainer:
         )
         end_pretokenize = time.time()
         pretokenize_time = end_pretokenize - start_pretokenize
-        print(f"Pretokenization completed in {pretokenize_time:.2f} seconds")
+        # print(f"Pretokenization completed in {pretokenize_time:.2f} seconds")
 
         start_merge = time.time()
         number_merges = self.vocab_size - 256 - len(self.special_tokens)
@@ -284,7 +284,7 @@ class BPETrainer:
         # # print(f"Merge operations completed in {merge_time:.2f} seconds")
 
         # start_vocab = time.time()
-        # vocab = self.build_vocab(merges)
+        vocab = self.build_vocab(merges)
         # end_vocab = time.time()
         # vocab_time = end_vocab - start_vocab
         # # print(f"Vocabulary building completed in {vocab_time:.2f} seconds")
