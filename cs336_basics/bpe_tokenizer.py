@@ -93,7 +93,7 @@ class BPETokenizer:
             total_bytes = 0
             start_time = time.time()
             segments = re.split(self.special_token_pattern, text)
-            print("Total chunks: ", len(segments))
+            # print("Total chunks: ", len(segments))
             for segment in segments:
                 if self.special_tokens and segment in self.special_tokens:
                     token_ids.extend(self.tokens_to_ids([segment.encode("utf-8")]))
@@ -111,23 +111,23 @@ class BPETokenizer:
                     mb = total_bytes / (1024 ** 2)
                     elapsed_minutes = elapsed / 60
                     throughput = mb / elapsed
-                    print(f"num_chunks: {num_chunks}")
-                    print(f"total_bytes: {total_bytes}")
-                    print(f"throughput: {throughput:.2f} MB/sec")
-                    print(f"elapsed: {elapsed_minutes:.2f} minutes")
+                    # print(f"num_chunks: {num_chunks}")
+                    # print(f"total_bytes: {total_bytes}")
+                    # print(f"throughput: {throughput:.2f} MB/sec")
+                    # print(f"elapsed: {elapsed_minutes:.2f} minutes")
 
             end_time = time.time()
             elapsed = end_time - start_time
-            print(f"elapsed: {elapsed}")
-            print(f"throughput: {total_bytes / elapsed:.2f} bytes/sec")
+            # print(f"elapsed: {elapsed}")
+            # print(f"throughput: {total_bytes / elapsed:.2f} bytes/sec")
 
             # calculate compression ratio
             original_size = total_bytes
             encoded_size = len(token_ids) * 2
             compression_ratio = original_size / encoded_size
-            print(f"Original size: {original_size}")
-            print(f"Encoded size: {encoded_size}")
-            print(f"Compression ratio: {compression_ratio:.2f}")
+            # print(f"Original size: {original_size}")
+            # print(f"Encoded size: {encoded_size}")
+            # print(f"Compression ratio: {compression_ratio:.2f}")
 
         return token_ids
 

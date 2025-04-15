@@ -1,8 +1,8 @@
 import torch
-from .base_layers import softmax
+from cs336_basics.base_layers import softmax
 import argparse
-from .transformer import TransformerLM
-from .bpe_tokenizer import BPETokenizer
+from cs336_basics.transformer import TransformerLM
+from cs336_basics.bpe_tokenizer import BPETokenizer
 
 def top_p_sample(probs, top_p):
     sorted_probs, _ = torch.sort(probs, dim=-1, descending=True)
@@ -16,12 +16,13 @@ def top_p_sample(probs, top_p):
     filtered = sorted_probs.masked_fill(sorted_indices_to_remove, 0.0)
     return filtered / filtered.sum(dim=-1, keepdim=True)
 
-def generate(model, prompt_tokens, max_tokens, context_length, eos_token_idx, device, temperature=0.0, top_p=0.9):
+def generate(model, prompt_tokens, max_tokens, context_length, eos_token_idx, device, tokenizer, temperature=0.0, top_p=0.9):
     model.eval()
 
     with torch.no_grad():
-        tokens = torch.tensor(prompt_tokens, device=device)
+        string_builder = tokenizer.decode(prompt_tokens)
         for _ in range(max_tokens):
+            tokens = torch.tensor([prompt_tokens], device=device)
             # truncate context length, run model, get last token logits
             tokens = tokens[-context_length:]
             logits = model(tokens)
@@ -34,18 +35,20 @@ def generate(model, prompt_tokens, max_tokens, context_length, eos_token_idx, de
             probs = top_p_sample(probs, top_p)
             next_token_index = torch.multinomial(probs, num_samples=1).item()
             next_token = torch.tensor([next_token_index], device=device)
-            tokens = torch.cat([tokens, next_token])
+            prompt_tokens.append(next_token_index)
+            string_builder += tokenizer.decode([next_token_index])
 
             # check end of sequence
             if next_token == eos_token_idx:
                 break
 
-    return tokens
+    return string_builder
 
 def main():
     parser = argparse.ArgumentParser(description="Generate text from a model checkpoint.")
     parser.add_argument("--checkpoint", type=str, required=True)
-    parser.add_argument("--tokenizer_path", type=str, required=True)
+    parser.add_argument("--vocab_path", type=str, required=True)
+    parser.add_argument("--merges_path", type=str, required=True)
     parser.add_argument("--max_tokens", type=int, default=100)
     parser.add_argument("--prompt", type=str, default="")
     parser.add_argument("--context_length", type=int, default=1024)
@@ -55,21 +58,28 @@ def main():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
-    checkpoint = torch.load(args.checkpoint, map_location=args.device)
-
     # model architecture -- this is fixed
-    vocab_size = 50257
-    num_layers = 12
+    vocab_size = 10000
+    num_layers = 4
     d_model = 512
-    num_heads = 8
-    d_ff = 2048
-    rope_theta = 1e6
+    num_heads = 16
+    d_ff = 1344
+    rope_theta = 10000
+    context_length = 256
     no_rope = post_norm = no_norm = only_silu = False
 
-    token_positions = torch.arange(args.context_length)
+    special_tokens = ["<|endoftext|>"]
+    tokenizer = BPETokenizer.from_files(args.vocab_path, args.merges_path, special_tokens)
+
+    if args.prompt:
+        prompt_tokens = tokenizer.encode(args.prompt)
+    else:
+        prompt_tokens = [tokenizer.bytes_to_ids["<|endoftext|>"]]
+
+    token_positions = torch.arange(len(prompt_tokens))
     model = TransformerLM(
         vocab_size=vocab_size,
-        context_length=args.context_length,
+        context_length=context_length,
         num_layers=num_layers,
         d_model=d_model,
         num_heads=num_heads,
@@ -78,24 +88,18 @@ def main():
         token_positions=token_positions,
         device=args.device,
         dtype=torch.float32,
-        no_rope=no_rope,
+        no_rope=True,
         post_norm=post_norm,
         no_norm=no_norm,
         only_silu=only_silu,
     )
-    model.to(args.device)
-
+    checkpoint = torch.load(args.checkpoint)
     model.load_state_dict(checkpoint["model"])
 
-    special_tokens = ["<|endoftext|>"]
-    tokenizer = BPETokenizer.from_files(args.tokenizer_path, args.tokenizer_path + ".merges", special_tokens)
+    model = torch.compile(model)
+    model.to(args.device)
 
-    if args.prompt:
-        prompt_tokens = tokenizer.encode(args.prompt)
-    else:
-        prompt_tokens = [tokenizer.token_to_id["<|endoftext|>"]]
-
-    generated_tokens = generate(
+    generated_text = generate(
         model=model,
         prompt_tokens=prompt_tokens,
         max_tokens=args.max_tokens,
@@ -104,12 +108,14 @@ def main():
         device=args.device,
         temperature=args.temperature,
         top_p=args.top_p,
+        tokenizer=tokenizer,
     )
-
-    generated_text = tokenizer.decode(generated_tokens)
 
     print("Generated text:")
     print(generated_text)
 
 if __name__ == "__main__":
     main()
+
+# srun --partition=interactive --qos=interactive-qos --gpus=1 --pty bash -c "uv run cs336_basics/generator.py --checkpoint /home/c-aalag/results/checkpoints/nbatch_32_model_iter_40000.pt --vocab_path /home/c-aalag/results/owt_train_vocab.json --merges_path /home/c-aalag/results/owt_train_merges.txt --max_tokens 256 --prompt 'The cat said'"
+# srun --partition=interactive --qos=interactive-qos --gpus=1 --pty bash -c "uv run cs336_basics/generator.py --checkpoint /home/c-aalag/results/checkpoints/nbatch_32_model_iter_40000.pt --vocab_path /home/c-aalag/results/tiny_train_vocab.json --merges_path /home/c-aalag/results/tiny_train_merges.txt --max_tokens 256 --prompt 'The cat said'"

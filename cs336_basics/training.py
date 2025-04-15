@@ -28,6 +28,31 @@ def load_checkpoint(src, model, optimizer) :
     optimizer.load_state_dict(obj['optimizer'])
     return obj['iteration']
 
+def log_validation(model, val_data, args, iteration, start_time, val_log, device):
+    model.eval()
+    with torch.no_grad():
+        val_loss = 0
+        val_perplexity = 0
+        for _ in range(8):
+            val_inputs, val_targets = get_batch(val_data, args.batch_size, args.context_length, device)
+            val_outputs = model(val_inputs)
+            val_loss += cross_entropy_loss(val_outputs, val_targets)
+            val_perplexity += perplexity(val_outputs, val_targets).item()
+        val_loss /= 8
+        val_perplexity /= 8
+
+    current_time = time.time() - start_time
+    val_entry = {
+        'iteration': iteration,
+        'val_loss': val_loss.item(),
+        'val_perplexity': val_perplexity,
+        'elapsed_time': current_time,
+    }
+    val_log.append(val_entry)
+    print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}, Perplexity: {val_perplexity:.2f}, Time: {current_time:.2f}s")
+    if args.use_wandb:
+        wandb.log(val_entry, step=iteration)
+
 def main(args):
     if args.config:
         with open(args.config, "r") as f:
@@ -93,8 +118,8 @@ def main(args):
 
     # function of the number of iterations
     args.ckpt_freq = args.num_iterations // 10
-    args.val_freq = args.num_iterations // 10
-    args.log_freq = args.num_iterations // 100
+    args.val_freq = args.num_iterations // 1000
+    args.log_freq = args.num_iterations // 1000
 
     # function of the number of iterations
     args.warmup_steps = args.num_iterations // 10
@@ -137,30 +162,18 @@ def main(args):
 
         # evaluate on the validation dataset
         if val_data is not None and iteration % args.val_freq == 0:
-            model.eval()
-            with torch.no_grad():
-                val_inputs, val_targets = get_batch(val_data, args.batch_size, args.context_length, device)
-                val_outputs = model(val_inputs)
-                val_loss = cross_entropy_loss(val_outputs, val_targets)
-                val_perplexity = perplexity(val_outputs, val_targets).item()
-
-            current_time = time.time() - start_time
-            val_entry = {
-                'iteration': iteration,
-                'val_loss': val_loss.item(),
-                'val_perplexity': val_perplexity,
-                'elapsed_time': current_time,
-            }
-            val_log.append(val_entry)
-            print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}, Perplexity: {val_perplexity:.2f}, Time: {current_time:.2f}s")
-            if args.use_wandb:
-                wandb.log(val_entry, step=iteration)
+            log_validation(model, val_data, args, iteration, start_time, val_log, device)
 
         # checkpointing
         if iteration % args.ckpt_freq == 0:
             ckpt_path = os.path.join(args.ckpt_dir, f"{args.experiment_name}_model_iter_{iteration}.pt")
             save_checkpoint(model, optimizer, iteration, ckpt_path)
             print(f"Checkpoint saved to {ckpt_path}")
+
+        if time.time() - start_time >= 5280:
+            print("reached max time limit")
+            log_validation(model, val_data, args, iteration, start_time, val_log, device)
+            break
 
     # save the logs just in case
     log_file = os.path.join(args.ckpt_dir, f"{args.experiment_name}_log.json")

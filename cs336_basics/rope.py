@@ -33,7 +33,6 @@ class RotaryPositionalEmbedding(nn.Module):
         # for each token position we get the corresponding list of sines/cosines (size k)
         cos = self.cos_vals[token_positions]
         sin = self.sin_vals[token_positions]
-
         x = rearrange(
             x,
             "... seq_len (d_half two) -> ... seq_len d_half two",

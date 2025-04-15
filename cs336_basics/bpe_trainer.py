@@ -100,19 +100,19 @@ class BPETrainer:
                 special_token_pattern=special_token_pattern,
             )
 
-            print(f"Pretokenizing with {self.num_processes} processes...")
+            # print(f"Pretokenizing with {self.num_processes} processes...")
             # Create a process pool and map the work
             with mp.Pool(processes=self.num_processes) as pool:
                 # Process all chunks in parallel and get results
                 results = pool.map(worker_fn, chunk_args)
 
-            print("Combining results...")
+            # print("Combining results...")
             # Combine results from all processes
             for local_counts in results:
                 for token, count in local_counts.items():
                     bytes_to_count[token] += count
 
-        print("Indexing token pairs...")
+        # print("Indexing token pairs...")
         # build a unique token list that we maintain indices into
         unique_token_list = list(bytes_to_count.keys())
         pair_to_count = defaultdict(int)
@@ -204,9 +204,6 @@ class BPETrainer:
     ) -> list[tuple[bytes, bytes]]:
         merges = []
 
-        # pair_heap = [PairEntry(pair, count) for pair, count in pair_to_count.items()]
-        # heapq.heapify(pair_heap)
-
         hp = heapdict.heapdict()
         for pair, count in pair_to_count.items():
             if count > 0:
@@ -233,22 +230,11 @@ class BPETrainer:
             # print(f"Merge time: {merge_time:.2f} seconds")
 
             # rebuild the heap
-            rebuild_heap_time = time.time()
             for pair in affected_pairs:
                 if pair in pair_to_count and pair_to_count[pair] > 0:
                     hp[pair] = self.get_priority(pair, pair_to_count[pair])
                 else:
                     hp.pop(pair, None)
-
-            # pair_heap = [
-            #     PairEntry(pair, count)
-            #     for pair, count in pair_to_count.items()
-            #     if count > 0
-            # ]
-            rebuild_heap_time = time.time() - rebuild_heap_time
-            # print(f"Rebuild heap time: {rebuild_heap_time:.2f} seconds")
-
-            # heapq.heapify(pair_heap)
 
         return merges
 
@@ -293,24 +279,24 @@ class BPETrainer:
             pair_to_count,
             number_merges,
         )
-        end_merge = time.time()
-        merge_time = end_merge - start_merge
-        print(f"Merge operations completed in {merge_time:.2f} seconds")
+        # end_merge = time.time()
+        # merge_time = end_merge - start_merge
+        # # print(f"Merge operations completed in {merge_time:.2f} seconds")
 
-        start_vocab = time.time()
-        vocab = self.build_vocab(merges)
-        end_vocab = time.time()
-        vocab_time = end_vocab - start_vocab
-        print(f"Vocabulary building completed in {vocab_time:.2f} seconds")
+        # start_vocab = time.time()
+        # vocab = self.build_vocab(merges)
+        # end_vocab = time.time()
+        # vocab_time = end_vocab - start_vocab
+        # # print(f"Vocabulary building completed in {vocab_time:.2f} seconds")
 
-        # Print total time
-        end_total = time.time()
-        total_time = end_total - start_total
-        print(f"\nTotal execution time: {total_time:.2f} seconds")
-        print(f"  - Pretokenization: {pretokenize_time:.2f}s ({pretokenize_time/total_time*100:.1f}%)")
-        print(f"  - Merge operations: {merge_time:.2f}s ({merge_time/total_time*100:.1f}%)")
-        print(f"  - Vocabulary building: {vocab_time:.2f}s ({vocab_time/total_time*100:.1f}%)")
-        print(f"  - Other overhead: {total_time - (pretokenize_time + merge_time + vocab_time):.2f}s")
+        # # Print total time
+        # end_total = time.time()
+        # total_time = end_total - start_total
+        # print(f"\nTotal execution time: {total_time:.2f} seconds")
+        # print(f"  - Pretokenization: {pretokenize_time:.2f}s ({pretokenize_time/total_time*100:.1f}%)")
+        # print(f"  - Merge operations: {merge_time:.2f}s ({merge_time/total_time*100:.1f}%)")
+        # print(f"  - Vocabulary building: {vocab_time:.2f}s ({vocab_time/total_time*100:.1f}%)")
+        # print(f"  - Other overhead: {total_time - (pretokenize_time + merge_time + vocab_time):.2f}s")
 
         if profile_path:
             profiler.disable()
@@ -341,4 +327,4 @@ def save_vocab_and_merges(
 def report_memory_usage():
     process = psutil.Process(os.getpid())
     mem = process.memory_info().rss  # Resident Set Size in bytes
-    print(f"Memory usage (RSS): {mem / (1024 * 1024):.2f} MB")
+    # print(f"Memory usage (RSS): {mem / (1024 * 1024):.2f} MB")
