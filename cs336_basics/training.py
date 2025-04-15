@@ -91,6 +91,14 @@ def main(args):
     train_log = []
     val_log = []
 
+    # function of the number of iterations
+    args.ckpt_freq = args.num_iterations // 10
+    args.val_freq = args.num_iterations // 10
+    args.log_freq = args.num_iterations // 100
+
+    # function of the number of iterations
+    args.warmup_steps = args.num_iterations // 10
+
     # training loop
     print("Starting training loop...")
     start_time = time.time()
@@ -125,7 +133,7 @@ def main(args):
 
             print(f"Iteration {iteration}/{args.num_iterations}, Training Loss: {loss.item():.4f}, Perplexity: {train_perplexity:.2f}, Time: {current_time:.2f}s")
             if args.use_wandb:
-                wandb.log(log_entry)
+                wandb.log(log_entry, step=iteration)
 
         # evaluate on the validation dataset
         if val_data is not None and iteration % args.val_freq == 0:
@@ -146,7 +154,7 @@ def main(args):
             val_log.append(val_entry)
             print(f"[Validation] Iteration {iteration}, Loss: {val_loss.item():.4f}, Perplexity: {val_perplexity:.2f}, Time: {current_time:.2f}s")
             if args.use_wandb:
-                wandb.log(val_entry)
+                wandb.log(val_entry, step=iteration)
 
         # checkpointing
         if iteration % args.ckpt_freq == 0:

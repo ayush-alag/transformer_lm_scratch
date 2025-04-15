@@ -1,13 +1,11 @@
 import regex as re
 from collections import defaultdict
-import heapq
 import multiprocessing as mp
 from functools import partial
 import json
 import cProfile
 import pstats
 from pstats import SortKey
-from tqdm import tqdm
 import time
 import mmap
 import psutil
@@ -15,7 +13,6 @@ import os
 import heapdict
 
 from .common_tokenizer import find_chunk_boundaries
-from memory_profiler import profile
 
 class PairEntry:
     def __init__(self, pair, count):
