@@ -5,16 +5,19 @@ from cs336_basics.transformer import TransformerLM
 from cs336_basics.bpe_tokenizer import BPETokenizer
 
 def top_p_sample(probs, top_p):
-    sorted_probs, _ = torch.sort(probs, dim=-1, descending=True)
+    sorted_probs, sorted_indices = torch.sort(probs, dim=-1, descending=True)
     cum_probs = torch.cumsum(sorted_probs, dim=-1)
 
     # remove tokens that exceed top_p, keep first token
     sorted_indices_to_remove = cum_probs > top_p
     sorted_indices_to_remove[..., :1] = False
+    sorted_probs = sorted_probs.masked_fill(sorted_indices_to_remove, 0.0)
+    sorted_probs = sorted_probs / sorted_probs.sum(dim=-1, keepdim=True)
 
     # zero out probabilities to remove and renormalize
-    filtered = sorted_probs.masked_fill(sorted_indices_to_remove, 0.0)
-    return filtered / filtered.sum(dim=-1, keepdim=True)
+    sampled_sorted_index = torch.multinomial(sorted_probs, num_samples=1)
+    next_token_index = sorted_indices.gather(dim=-1, index=sampled_sorted_index)
+    return next_token_index.item()
 
 def generate(model, prompt_tokens, max_tokens, context_length, eos_token_idx, device, tokenizer, temperature=0.0, top_p=0.9):
     model.eval()
