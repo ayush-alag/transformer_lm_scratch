@@ -140,7 +140,7 @@ def main(args):
         with autocast(device_type='cuda', dtype=torch.float16):
             outputs = model(inputs)  # outputs shape: (batch_size, context_length, d_model)
             loss = cross_entropy_loss(outputs, targets)
-            
+
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
 
@@ -189,6 +189,21 @@ def main(args):
     with open(log_file, "w", encoding="utf-8") as lf:
         json.dump(train_log, lf, indent=2)
     print(f"Experiment log saved to {log_file}")
+
+    # compute the validation loss across all data
+    num_batches=(val_data.shape[0]-1) // (args.batch_size * args.context_length)
+    with torch.no_grad():
+        total_loss = 0
+        total_tokens = 0
+        for i in range(num_batches):
+            start = i * args.batch_size * args.context_length
+            end = start + args.batch_size * args.context_length + 1
+            batch = val_data[start:end].to(device).view(args.batch_size, args.context_length+1)
+            loss = cross_entropy_loss(model(batch[:,:-1]), batch[:,1:])
+            total_loss += loss.item() * args.batch_size * args.context_length
+            total_tokens += args.batch_size * args.context_length
+    avg_loss = total_loss/total_tokens
+    print(f"Validation Loss: {avg_loss:.4f}")
 
     # finish and close wandb
     if args.use_wandb:
