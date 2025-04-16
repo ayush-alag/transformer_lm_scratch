@@ -8,7 +8,7 @@ vocab_size: 10000
 
 eps: 1e-8
 betas: [0.9, 0.999]
-lr: 1e-1
+lr: 1e-3
 weight_decay: 0.01
 
 # batch_size * num_iters = 1,280,000
@@ -26,7 +26,10 @@ ckpt_dir: "/home/c-aalag/results/checkpoints"
 
 no_cuda: false
 
+# no rope!
+no_norm: true
+
 # Additional wandb settings:
 use_wandb: true
 project: "tinystories_expts"
-experiment_name: "new_lr_e_minus1"
+experiment_name: "no_norm_lrmin3"
