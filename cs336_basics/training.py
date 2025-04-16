@@ -1,4 +1,5 @@
 import torch
+from torch.amp import GradScaler, autocast
 import os
 import numpy as np
 import argparse
@@ -82,7 +83,7 @@ def main(args):
     else:
         val_data = None
 
-    token_positions = np.arange(args.context_length)
+    token_positions = torch.arange(args.context_length)
     print(args.vocab_size, args.context_length, args.num_layers, args.d_model, args.num_heads, args.d_ff, args.rope_theta)
     model = TransformerLM(
         vocab_size=args.vocab_size,
@@ -100,6 +101,7 @@ def main(args):
         no_norm=args.no_norm,
         only_silu=args.only_silu
     )
+    torch.compile(model)
     model.to(device)
 
     # build the optimizer
@@ -124,24 +126,31 @@ def main(args):
     # function of the number of iterations
     args.warmup_steps = args.num_iterations // 10
 
+    scaler = GradScaler()
+
     # training loop
     print("Starting training loop...")
     start_time = time.time()
     for iteration in tqdm(range(starting_iteration, args.num_iterations + 1), desc="Training"):
+        # Runs the forward pass with autocasting.
         model.train()
         optimizer.zero_grad()
 
         inputs, targets = get_batch(train_data, args.batch_size, args.context_length, device)
-        outputs = model(inputs)  # outputs shape: (batch_size, context_length, d_model)
-        loss = cross_entropy_loss(outputs, targets)
-        loss.backward()
+        with autocast(device_type='cuda', dtype=torch.float16):
+            outputs = model(inputs)  # outputs shape: (batch_size, context_length, d_model)
+            loss = cross_entropy_loss(outputs, targets)
+            
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
 
         grad_clipping(model.parameters(), args.max_grad_norm)
         new_lr = learning_rate_schedule(iteration, a_max=args.lr, a_min=0.1*args.lr, t_w=args.warmup_steps, t_c=args.num_iterations)
         for group in optimizer.param_groups:
             group['lr'] = new_lr
 
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         if iteration % args.log_freq == 0:
             train_perplexity = perplexity(outputs, targets).item()

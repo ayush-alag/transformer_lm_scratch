@@ -16,11 +16,9 @@ class RotaryPositionalEmbedding(nn.Module):
         self.populate_trig()
 
     def populate_trig(self):
-        pos = torch.arange(self.max_seq_len, device=self.device).unsqueeze(
-            1
-        )  # [max_len, 1]
+        pos = torch.arange(self.max_seq_len, device=self.device).unsqueeze(1)
         ks = torch.arange(self.d_k // 2, device=self.device, dtype=torch.float32)
-        inv_freq = self.theta ** (-(2 * ks / self.d_k))  # [d_k / 2]
+        inv_freq = self.theta ** (-(2 * ks / self.d_k))
 
         angles = pos * inv_freq
         self.cosines = angles.cos()
@@ -31,8 +29,9 @@ class RotaryPositionalEmbedding(nn.Module):
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         # for each token position we get the corresponding list of sines/cosines (size k)
-        cos = self.cos_vals[token_positions]
-        sin = self.sin_vals[token_positions]
+        # token_positions = torch.arange(x.shape[-2])
+        cos = self.cos_vals[..., x.shape[-2], :]
+        sin = self.sin_vals[..., x.shape[-2], :]
         x = rearrange(
             x,
             "... seq_len (d_half two) -> ... seq_len d_half two",
