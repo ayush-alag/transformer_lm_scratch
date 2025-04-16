@@ -7,16 +7,10 @@ import numpy as np
 
 def encode_text(input_file, output_file, tokenizer, max_files=None):
     mm = np.memmap(input_file, mode='r', dtype='uint8')
-    # Convert the mapped bytes to a single bytes object and decode.
-    # (If the file is huge, you might want to split it further without converting the entire file.)
     text = mm.tobytes().decode('utf-8', errors='replace')
-    
-    # Split the text into segments using the delimiter.
+
     segments = text.split('<|endoftext|>')[:max_files]
     text_to_encode = '<|endoftext|>'.join(segments)
-    
-    # with open(input_file, 'r', encoding='utf-8') as f:
-    #     text = f.read()
 
     token_ids = tokenizer.encode(text, max_chunks=max_files)
     tokenizer.serialize(token_ids, output_file)
@@ -35,7 +29,7 @@ def main():
     pr.enable()
     encode_text(args.input, args.output, tokenizer)
     pr.disable()
-    
+
     s = io.StringIO()
     ps = pstats.Stats(pr, stream=s).sort_stats('cumtime')
     ps.print_stats()

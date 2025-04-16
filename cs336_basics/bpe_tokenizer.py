@@ -22,15 +22,12 @@ class BPETokenizer:
             escaped_tokens = [re.escape(token) for token in sorted_special_tokens]
             self.special_token_pattern = re.compile("(" + "|".join(escaped_tokens) + ")")
 
-    # TODO test this... with serialize + deserialize
     @classmethod
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
-        # Load vocab
         with open(vocab_filepath, "r", encoding="utf-8") as vf:
             vocab_json = json.load(vf)
             vocab = {int(k): bytes(v) for k, v in vocab_json.items()}
 
-        # Load merges
         merges = []
         with open(merges_filepath, "r", encoding="utf-8") as mf:
             for line in mf:

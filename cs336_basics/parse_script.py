@@ -18,18 +18,15 @@ def convert_vocab(json_file: str) -> list[str]:
         vocab_dict = json.load(f)
 
     tokens = []
-    # Ensure we process keys in numerical order if needed.
     for key in sorted(vocab_dict.keys(), key=lambda k: int(k)):
         token_ints = vocab_dict[key]
         token_bytes = bytes(token_ints)
-        # Attempt to decode the bytes as UTF-8. If decoding fails, replace problematic characters.
         try:
             token_str = token_bytes.decode('utf-8')
         except UnicodeDecodeError:
             token_str = token_bytes.decode('utf-8', errors='replace')
         tokens.append(token_str)
 
-    # Sort the tokens list by their length (number of characters)
     sorted_tokens = sorted(tokens, key=len, reverse=True)
     return sorted_tokens
 
