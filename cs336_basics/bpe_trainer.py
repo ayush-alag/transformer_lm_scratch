@@ -16,16 +16,13 @@ from .common_tokenizer import find_chunk_boundaries
 
 class PairEntry:
     def __init__(self, pair, count):
-        self.pair = pair  # The byte pair
-        self.count = count  # Frequency count
+        self.pair = pair
+        self.count = count
 
     def __lt__(self, other):
-        # For heap operations, we need to define "less than"
-        # We want higher counts to come first (max heap)
         if self.count != other.count:
-            return self.count > other.count  # Note the > for max heap
+            return self.count > other.count
 
-        # Tiebreaker: lexicographically greater pair comes first
         return self.pair > other.pair
 
     def __eq__(self, other):
@@ -48,14 +45,10 @@ class BPETrainer:
         bytes_to_count = defaultdict(int)
 
         start, end = args
-        # Each process needs its own file handle
         with open(file_path, "rb") as f:
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-            # try using mmap
             chunk = mm[start:end].decode("utf-8", errors="ignore")
             mm.close()
-            # f.seek(start)
-            # chunk = f.read(end - start).decode("utf-8", errors="ignore")
 
             if special_token_pattern:
                 for small_chunk in re.split(special_token_pattern, chunk):
@@ -66,7 +59,6 @@ class BPETrainer:
                         bytes_to_count[token_bytes] += 1
             else:
                 for match in re.finditer(self.PAT_compiled, chunk):
-                    # tuple of single bytes, each is a bytes type
                     raw_bytes = match.group(0).encode("utf-8")
                     token_bytes = tuple(bytes([b]) for b in raw_bytes)
                     bytes_to_count[token_bytes] += 1
@@ -77,23 +69,19 @@ class BPETrainer:
         bytes_to_count = defaultdict(int)
         pair_to_locations = defaultdict(set)
 
-        # Create a regex pattern to split on special tokens if provided
         special_token_pattern = None
         escaped_tokens = [re.escape(token) for token in self.special_tokens]
         if len(escaped_tokens) > 0:
             special_token_pattern = re.compile("|".join(escaped_tokens))
 
-        ## Usage
-        # print("Reading and chunking input file...")
         with open(self.input_path, "rb") as f:
             boundaries = find_chunk_boundaries(
                 f, self.num_processes, "<|endoftext|>".encode("utf-8")
             )
 
-            # Create argument pairs
             chunk_args = list(zip(boundaries[:-1], boundaries[1:]))
 
-            # Create a partial function with fixed arguments
+            # partial function with fixed arguments
             worker_fn = partial(
                 self.pretokenize_chunk,
                 file_path=self.input_path,
@@ -101,23 +89,18 @@ class BPETrainer:
             )
 
             # print(f"Pretokenizing with {self.num_processes} processes...")
-            # Create a process pool and map the work
             with mp.Pool(processes=self.num_processes) as pool:
-                # Process all chunks in parallel and get results
                 results = pool.map(worker_fn, chunk_args)
 
-            # print("Combining results...")
-            # Combine results from all processes
             for local_counts in results:
                 for token, count in local_counts.items():
                     bytes_to_count[token] += count
 
-        # print("Indexing token pairs...")
         # build a unique token list that we maintain indices into
         unique_token_list = list(bytes_to_count.keys())
         pair_to_count = defaultdict(int)
         for i, unique_token in enumerate(unique_token_list):
-            # Index all pairs in this token
+            # index all pairs in this token
             for pos in range(len(unique_token) - 1):
                 pair = (unique_token[pos], unique_token[pos + 1])
                 pair_to_locations[pair].add(i)
@@ -135,7 +118,7 @@ class BPETrainer:
     ):
         merged_pair = best_pair[0] + best_pair[1]
         tokens_to_delete = set()
-        affected_pairs = set()  # Track pairs that get updated
+        affected_pairs = set()
 
         # now, all i need to do is update pair_to_count, pair_to_locs, and pretoken
         for token_list_idx in list(pair_to_locs[best_pair]):
@@ -179,7 +162,7 @@ class BPETrainer:
 
             tokens_to_delete.add(old_token)
 
-        # After processing all tokens that had the best_pair, delete all marked old tokens.
+        # after processing all tokens that had the best_pair, delete all marked old tokens.
         for token in tokens_to_delete:
             pretokenized_bytes_to_count.pop(token, None)
 

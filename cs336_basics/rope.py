@@ -30,8 +30,8 @@ class RotaryPositionalEmbedding(nn.Module):
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         # for each token position we get the corresponding list of sines/cosines (size k)
         token_positions = torch.arange(x.shape[-2])
-        cos = self.cos_vals[..., token_positions, :]
-        sin = self.sin_vals[..., token_positions, :]
+        cos = self.cos_vals[token_positions]
+        sin = self.sin_vals[token_positions]
         x = rearrange(
             x,
             "... seq_len (d_half two) -> ... seq_len d_half two",

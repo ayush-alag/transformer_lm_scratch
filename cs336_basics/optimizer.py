@@ -24,12 +24,13 @@ class AdamW(torch.optim.Optimizer):
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                state = self.state[p] # Get state associated with p.
+                state = self.state[p]
                 m = state.get("m", torch.zeros_like(p))
                 v = state.get("v", torch.zeros_like(p))
-                t = state.get("t", 1) # Get iteration number from the state, or initial value.
-                grad = p.grad.data # Get the gradient of loss with respect to p.
+                t = state.get("t", 1)
+                grad = p.grad.data
 
+                # update m and v
                 state["m"] = beta1 * m + (1 - beta1) * grad
                 state["v"] = beta2 * v + (1 - beta2) * grad * grad
 
@@ -38,7 +39,7 @@ class AdamW(torch.optim.Optimizer):
 
                 p.data -= lr_t * state["m"] / (state["v"] ** 0.5 + eps)
                 p.data *= (1 - lr * weight_decay)
-                state["t"] = t + 1 # Increment iteration number.
+                state["t"] = t + 1
 
         return loss
 
@@ -52,17 +53,17 @@ class SGD(torch.optim.Optimizer):
     def step(self, closure: Optional[Callable] = None):
         loss = None if closure is None else closure()
         for group in self.param_groups:
-            lr = group["lr"] # Get the learning rate.
+            lr = group["lr"]
 
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                state = self.state[p] # Get state associated with p.
-                t = state.get("t", 0) # Get iteration number from the state, or initial value.
-                grad = p.grad.data # Get the gradient of loss with respect to p.
+                state = self.state[p]
+                t = state.get("t", 0)
+                grad = p.grad.data
 
-                p.data -= lr / math.sqrt(t + 1) * grad # Update weight tensor in-place.
-                state["t"] = t + 1 # Increment iteration number.
+                p.data -= lr / math.sqrt(t + 1) * grad
+                state["t"] = t + 1
 
         return loss
 
@@ -72,11 +73,11 @@ def test_sgd(lr: float, iterations: int):
 
     losses = []
     for t in range(iterations):
-        opt.zero_grad() # Reset the gradients for all learnable parameters.
-        loss = (weights**2).mean() # Compute a scalar loss value.
+        opt.zero_grad()
+        loss = (weights**2).mean()
         losses.append(loss.cpu().item())
-        loss.backward() # Run backward pass, which computes gradients.
-        opt.step() # Run optimizer step.
+        loss.backward()
+        opt.step()
 
     return losses
 
@@ -94,11 +95,9 @@ def grad_clipping(parameters, max_l2_norm, eps=1e-6):
     if not params_with_grad:
         return
 
-    # Compute the global L2 norm for all gradients.
     total_norm_sq = sum(p.grad.data.pow(2).sum() for p in params_with_grad)
-    global_norm = total_norm_sq.sqrt().item()  # convert tensor -> float
+    global_norm = total_norm_sq.sqrt().item()
 
-    # If the global norm exceeds max_l2_norm, scale all gradients.
     if global_norm > max_l2_norm:
         for p in params_with_grad:
             p.grad.data *= max_l2_norm / (global_norm + eps)
